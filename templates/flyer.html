@@ -479,9 +479,13 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
     </div>
     <div class="card">
       <div class="c-title">Schools</div>
+      {% if l.elementary or l.junior_high or l.high_school %}
       {% if l.elementary %}<div class="c-line">Elem: {{ l.elementary }}</div>{% endif %}
       {% if l.junior_high %}<div class="c-line">Jr High: {{ l.junior_high }}</div>{% endif %}
       {% if l.high_school %}<div class="c-line">High: {{ l.high_school }}</div>{% endif %}
+      {% elif l.school_district %}
+      <div class="c-line">District: {{ l.school_district }}</div>
+      {% endif %}
     </div>
     {% if pets_display or is_condo_like %}
     <div class="card">
@@ -506,7 +510,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
     <div class="legal">
       {% if l.list_broker_name %}Listing courtesy of {{ l.list_broker_name }}{% if l.list_brokerage %}, {{ l.list_brokerage }}{% endif %}. {% endif %}
       Information deemed reliable but not guaranteed and should be independently verified, MLS #{{ l.mls_number }}. This office is independently owned and operated.
-      Prepared {{ prepared_date }} using public MLS data; not intended as a solicitation if your property is already listed.
+      Prepared {{ prepared_date }} using public MLS data.
     </div>
   </div>
 

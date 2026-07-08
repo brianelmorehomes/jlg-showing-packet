@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+@font-face { font-family: 'Playfair Display'; src: url('file://{{ font_dir }}/PlayfairDisplay-Reg-Final.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'Playfair Display'; src: url('file://{{ font_dir }}/PlayfairDisplay-Bold-Final.ttf'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'Work Sans'; src: url('file://{{ font_dir }}/WorkSans-Reg-Final.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'Work Sans'; src: url('file://{{ font_dir }}/WorkSans-Med-Final.ttf'); font-weight: 500; font-style: normal; }
+@font-face { font-family: 'Work Sans'; src: url('file://{{ font_dir }}/WorkSans-SemiBold-Final.ttf'); font-weight: 600; font-style: normal; }
+@font-face { font-family: 'Work Sans'; src: url('file://{{ font_dir }}/WorkSans-Bold-Final.ttf'); font-weight: 700; font-style: normal; }
+
+:root {
+  --broker-blue: #032b42;
+  --slate: #f2f2f2;
+  --granite: #404042;
+  --white: #ffffff;
+  --hairline: #d8dcde;
+}
+
+* { box-sizing: border-box; }
+
+@page {
+  size: 8.5in 11in;
+  margin: 0.42in 0.55in 0.62in 0.55in;
+  @bottom-center {
+    content: "{{ footer_label }}  \2022  Page " counter(page) " of " counter(pages);
+    font-family: 'Work Sans', sans-serif;
+    font-size: 6.6pt;
+    color: #9a9a9c;
+    padding-top: 6px;
+    border-top: 0.6pt solid #d8dcde;
+    width: 100%;
+  }
+}
+@page :first { margin-top: 0.4in; }
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Work Sans', sans-serif;
+  color: var(--granite);
+  font-size: 9.6pt;
+  line-height: 1.42;
+}
+
+h1, h2, h3 { margin: 0; padding: 0; }
+.serif { font-family: 'Playfair Display', serif; }
+
+/* ---------- Masthead ---------- */
+.masthead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1.4pt solid var(--broker-blue);
+  margin-bottom: 16px;
+}
+.masthead img.lockup { height: 30px; display: block; }
+.masthead .meta {
+  text-align: right;
+  font-size: 7.6pt;
+  color: var(--granite);
+  letter-spacing: 0.02em;
+}
+.masthead .meta .strong { font-weight: 600; color: var(--broker-blue); }
+
+/* ---------- Title block ---------- */
+.title-block { margin-bottom: 16px; }
+.title-block h1 {
+  font-family: 'Playfair Display', serif;
+  font-weight: 700;
+  font-size: 20pt;
+  color: var(--broker-blue);
+  line-height: 1.1;
+}
+.title-block .subline {
+  margin-top: 5px;
+  font-size: 9.4pt;
+  color: var(--granite);
+}
+
+/* ---------- Notes sections ---------- */
+.note-section {
+  break-inside: avoid;
+  margin-bottom: 14px;
+  border: 0.8pt solid var(--hairline);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.note-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--slate);
+  padding: 8px 12px;
+}
+.note-head .badge {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--broker-blue);
+  color: white;
+  font-weight: 700;
+  font-size: 9.6pt;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.note-head .addr { flex: 1; min-width: 0; }
+.note-head .addr .line1 { font-weight: 600; font-size: 9.8pt; color: var(--granite); }
+.note-head .addr .line2 { font-size: 7.8pt; color: #78797b; margin-top: 1px; }
+.note-head .time { font-size: 8.4pt; color: var(--broker-blue); font-weight: 600; }
+.note-lines { padding: 10px 12px 4px; }
+.note-lines .rule {
+  border-bottom: 0.7pt solid var(--hairline);
+  height: 20px;
+}
+</style>
+</head>
+<body>
+
+<div class="masthead">
+  <img class="lockup" src="file://{{ logo_lockup }}">
+  <div class="meta">
+    <div class="strong">Showing Notes</div>
+    <div>Prepared {{ prepared_date }}{% if agent_name %} by {{ agent_name }}{% endif %}</div>
+  </div>
+</div>
+
+<div class="title-block">
+  <h1 class="serif">{{ client_name or "Showing Notes" }}</h1>
+  <div class="subline">Space to jot impressions on each stop{% if showing_date %} &mdash; {{ showing_date }}{% endif %}</div>
+</div>
+
+{% for row in rows %}
+<div class="note-section">
+  <div class="note-head">
+    <div class="badge">{{ row.n }}</div>
+    <div class="addr">
+      <div class="line1">{{ row.address_line1 }}</div>
+      <div class="line2">{{ row.city_state_zip }}</div>
+    </div>
+    {% if row.time %}<div class="time">{{ row.time }}</div>{% endif %}
+  </div>
+  <div class="note-lines">
+    <div class="rule"></div>
+    <div class="rule"></div>
+    <div class="rule"></div>
+  </div>
+</div>
+{% endfor %}
+
+</body>
+</html>

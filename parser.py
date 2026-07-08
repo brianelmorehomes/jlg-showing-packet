@@ -161,6 +161,8 @@ class Listing:
     elementary: str = ""
     junior_high: str = ""
     high_school: str = ""
+    school_district: str = ""  # single-name district (e.g. MichRIC sheets,
+                                # which don't split out elementary/jr/high)
 
     pets_allowed: str = ""
     max_pet_weight: str = ""

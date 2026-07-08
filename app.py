@@ -21,7 +21,7 @@ from datetime import datetime
 
 from flask import Flask, request, jsonify, send_file, render_template_string, after_this_request
 
-from parser import parse_listing_pdf
+from mls_router import parse_listing_pdf
 from packet import build_packet, split_into_listing_pdfs
 
 app = Flask(__name__)

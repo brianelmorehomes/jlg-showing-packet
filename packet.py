@@ -125,6 +125,22 @@ def _strip_unit(address):
     return _UNIT_RE.sub("", address or "").strip()
 
 
+def _city_level(address):
+    """Drop the street line, keeping just "City, ST ZIP" -- a last-resort
+    fallback for addresses on rural/newly-built roads that Nominatim's
+    free OSM data doesn't have street-level coverage for at all (observed
+    on real listings: full street address returns no match, but the bare
+    street name *also* returns no match, meaning the road itself isn't in
+    OSM's dataset for that area -- not something a smarter address query
+    can work around). A city-center pin is still far more useful on a
+    multi-stop showing route map than a stop silently vanishing from it,
+    and the map's own caption already caveats the route as approximate."""
+    parts = (address or "").split(",")
+    if len(parts) < 2:
+        return None
+    return ",".join(p.strip() for p in parts[1:]).strip() or None
+
+
 def geocode_addresses(addresses, user_agent="jlg-showing-packet-app"):
     """Best-effort geocode a list of full address strings (street + city/
     state/zip) to (lat, lon). Returns a list the same length as `addresses`,
@@ -153,6 +169,9 @@ def geocode_addresses(addresses, user_agent="jlg-showing-packet-app"):
             stripped = _strip_unit(addr)
             if stripped != addr:
                 candidates.append(stripped)
+            city_level = _city_level(addr)
+            if city_level:
+                candidates.append(city_level)
             for candidate in candidates:
                 try:
                     loc = geocode(candidate)
@@ -272,6 +291,32 @@ def build_route_map(points, out_path, width=1300, height=760):
 # Cover page
 # ---------------------------------------------------------------------------
 
+def cover_density(n_rows):
+    """A 2-3 stop showing day and a 12-stop broker open-house tour need
+    very different type scales to both fit the schedule *and* the route
+    map on one page -- rather than let the map spill onto its own mostly-
+    empty second page as the stop count grows, the schedule rows (and,
+    via `map_height_for` below, the map image itself) shrink a notch at a
+    time to make room. Empirically tuned against real multi-stop packets
+    rather than computed from exact CSS box math."""
+    if n_rows <= 6:
+        return ""
+    if n_rows <= 9:
+        return "compact"
+    if n_rows <= 13:
+        return "tight"
+    return "very-tight"
+
+
+def map_height_for(n_rows, base=760):
+    """Matching pixel height for the route map PNG at each density tier --
+    the map is a fixed-aspect-ratio image, so CSS alone can shrink its
+    width but not its height without cropping it; the actual render has
+    to ask for a shorter image up front to reclaim vertical space."""
+    density = cover_density(n_rows)
+    return {"": base, "compact": 560, "tight": 420, "very-tight": 320}[density]
+
+
 def render_cover(
     rows,
     output_path,
@@ -298,6 +343,36 @@ def render_cover(
         map_image=map_image,
         prepared_date=prepared_date,
         footer_label=client_name or "Showing Schedule",
+        density=cover_density(len(rows)),
+    )
+    HTML(string=html_str, base_url=BASE_DIR).write_pdf(output_path)
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# Notes page (end of packet)
+# ---------------------------------------------------------------------------
+
+def render_notes(
+    rows,
+    output_path,
+    showing_date="",
+    client_name="",
+    agent_name="Brian Elmore",
+    print_safe_logo=False,
+    prepared_date="",
+):
+    env = Environment(loader=FileSystemLoader(TEMPLATES_DIR))
+    template = env.get_template("notes.html")
+    html_str = template.render(
+        rows=rows,
+        showing_date=showing_date,
+        client_name=client_name,
+        agent_name=agent_name,
+        font_dir=FONT_DIR,
+        logo_lockup=LOGO_LOCKUP_BW if print_safe_logo else LOGO_LOCKUP,
+        prepared_date=prepared_date,
+        footer_label=client_name or "Showing Notes",
     )
     HTML(string=html_str, base_url=BASE_DIR).write_pdf(output_path)
     return output_path
@@ -306,6 +381,21 @@ def render_cover(
 # ---------------------------------------------------------------------------
 # PDF merge
 # ---------------------------------------------------------------------------
+
+def _blank_page_pdf(output_path, width=612, height=792):
+    """A single blank Letter-size page -- inserted right after the cover so
+    that when the packet is printed double-sided, every listing's flyer
+    still starts on a fresh sheet (recto) instead of drifting onto the back
+    of whatever page happened to precede it. Built directly with pypdf
+    rather than rendered through WeasyPrint since there's no content on it
+    at all -- just an empty page of the same size as the rest of the
+    packet."""
+    writer = PdfWriter()
+    writer.add_blank_page(width=width, height=height)
+    with open(output_path, "wb") as f:
+        writer.write(f)
+    return output_path
+
 
 def merge_pdfs(pdf_paths, output_path):
     writer = PdfWriter()
@@ -362,7 +452,9 @@ def build_packet(
                 fd, map_path = tempfile.mkstemp(suffix=".png")
                 os.close(fd)
                 tmp_paths.append(map_path)
-                map_image = build_route_map(points, map_path)
+                map_image = build_route_map(
+                    points, map_path, height=map_height_for(len(ordered_items))
+                )
 
         # 3. Cover page.
         rows = []
@@ -395,8 +487,29 @@ def build_packet(
             prepared_date=prepared_date,
         )
 
-        # 4. Merge cover + flyers in order.
-        merge_pdfs([cover_path] + flyer_paths, output_path)
+        # 4. Blank page right after the cover, for double-sided printing
+        # alignment (see _blank_page_pdf).
+        fd, blank_path = tempfile.mkstemp(suffix=".pdf")
+        os.close(fd)
+        tmp_paths.append(blank_path)
+        _blank_page_pdf(blank_path)
+
+        # 5. Notes page at the very end -- one small section per stop.
+        fd, notes_path = tempfile.mkstemp(suffix=".pdf")
+        os.close(fd)
+        tmp_paths.append(notes_path)
+        render_notes(
+            rows,
+            notes_path,
+            showing_date=showing_date,
+            client_name=client_name,
+            agent_name=agent_name,
+            print_safe_logo=print_safe_logo,
+            prepared_date=prepared_date,
+        )
+
+        # 6. Merge cover + blank + flyers + notes, in order.
+        merge_pdfs([cover_path, blank_path] + flyer_paths + [notes_path], output_path)
         return output_path
     finally:
         for p in tmp_paths:
