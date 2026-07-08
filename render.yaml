@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: jlg-showing-packet
+    env: docker
+    plan: free
+    envVars:
+      - key: AGENT_NAME
+        sync: false
+      - key: AGENT_PHONE
+        sync: false
+      - key: AGENT_EMAIL
+        sync: false

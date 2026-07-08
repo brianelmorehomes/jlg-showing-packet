@@ -1,0 +1,10 @@
+flask
+gunicorn
+pdfplumber
+pymupdf
+weasyprint
+jinja2
+pypdf
+geopy
+staticmap
+Pillow

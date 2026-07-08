@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+@font-face { font-family: 'Playfair Display'; src: url('file://{{ font_dir }}/PlayfairDisplay-Reg-Final.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'Playfair Display'; src: url('file://{{ font_dir }}/PlayfairDisplay-Bold-Final.ttf'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'Playfair Display'; src: url('file://{{ font_dir }}/PlayfairDisplay-Italic-Final.ttf'); font-weight: 400; font-style: italic; }
+@font-face { font-family: 'Work Sans'; src: url('file://{{ font_dir }}/WorkSans-Reg-Final.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'Work Sans'; src: url('file://{{ font_dir }}/WorkSans-Med-Final.ttf'); font-weight: 500; font-style: normal; }
+@font-face { font-family: 'Work Sans'; src: url('file://{{ font_dir }}/WorkSans-SemiBold-Final.ttf'); font-weight: 600; font-style: normal; }
+@font-face { font-family: 'Work Sans'; src: url('file://{{ font_dir }}/WorkSans-Bold-Final.ttf'); font-weight: 700; font-style: normal; }
+
+:root {
+  --broker-blue: #032b42;
+  --slate: #f2f2f2;
+  --ruge: #780000;
+  --granite: #404042;
+  --white: #ffffff;
+  --hairline: #d8dcde;
+}
+
+* { box-sizing: border-box; }
+
+@page {
+  size: 8.5in 11in;
+  margin: 0.42in 0.55in 0.62in 0.55in;
+  @bottom-center {
+    content: "{{ l.full_address }}  \2022  Page " counter(page) " of " counter(pages);
+    font-family: 'Work Sans', sans-serif;
+    font-size: 6.6pt;
+    color: #9a9a9c;
+    padding-top: 6px;
+    border-top: 0.6pt solid #d8dcde;
+    width: 100%;
+  }
+}
+@page :first {
+  margin-top: 0.4in;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Work Sans', sans-serif;
+  color: var(--granite);
+  font-size: 9.6pt;
+  line-height: 1.42;
+}
+
+h1, h2, h3 { margin: 0; padding: 0; }
+
+.serif { font-family: 'Playfair Display', serif; }
+
+/* ---------- Masthead ---------- */
+.masthead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1.4pt solid var(--broker-blue);
+  margin-bottom: 12px;
+}
+.masthead img.lockup { height: 30px; display: block; }
+.masthead .meta {
+  text-align: right;
+  font-size: 7.6pt;
+  color: var(--granite);
+  letter-spacing: 0.02em;
+}
+.masthead .meta .mls { font-weight: 600; color: var(--broker-blue); }
+
+/* ---------- Hero: photo (right-sized to source resolution) + info ------- */
+.hero-row {
+  display: flex;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+.hero-photo-box {
+  position: relative;
+  flex: 0 0 2.95in;
+  width: 2.95in;
+}
+.hero-photo {
+  width: 2.95in;
+  height: 1.97in;
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: cover;
+  display: block;
+  border-radius: 3px;
+  background-color: var(--slate);
+}
+.status-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: var(--broker-blue);
+  color: white;
+  font-family: 'Work Sans', sans-serif;
+  font-weight: 700;
+  font-size: 7.8pt;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: 2px;
+  text-transform: uppercase;
+}
+.hero-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.hero-info h1 {
+  font-size: 18.5pt;
+  font-weight: 700;
+  color: var(--broker-blue);
+  line-height: 1.16;
+  font-family: 'Playfair Display', serif;
+}
+.hero-info .city {
+  font-size: 9.4pt;
+  color: var(--granite);
+  margin-top: 4px;
+}
+.hero-info .market-line {
+  font-size: 8pt;
+  color: #6b6b6d;
+  margin-top: 3px;
+}
+.hero-info .price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  border-top: 1pt solid var(--hairline);
+  margin-top: 12px;
+  padding-top: 10px;
+}
+.hero-info .amt {
+  font-size: 22pt;
+  font-weight: 700;
+  color: var(--broker-blue);
+  font-family: 'Playfair Display', serif;
+}
+.hero-info .type {
+  font-size: 7.8pt;
+  color: var(--granite);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ---------- Quick facts strip ---------- */
+.facts-strip {
+  display: flex;
+  background: var(--slate);
+  border-radius: 3px 3px 0 0;
+  padding: 10px 4px 8px;
+}
+.facts-strip-secondary {
+  display: flex;
+  background: #e9ecee;
+  border-radius: 0 0 3px 3px;
+  padding: 8px 4px;
+  margin-bottom: 16px;
+}
+.fact {
+  flex: 1;
+  text-align: center;
+  border-right: 1pt solid #e2e2e2;
+  padding: 0 4px;
+}
+.fact:last-child { border-right: none; }
+.fact .num {
+  font-family: 'Playfair Display', serif;
+  font-weight: 700;
+  font-size: 15pt;
+  color: var(--broker-blue);
+  display: block;
+}
+.facts-strip-secondary .fact .num { font-size: 12pt; }
+.fact .num.text {
+  font-size: 11pt;
+  letter-spacing: -0.01em;
+}
+.fact .lbl {
+  font-size: 6.8pt;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--granite);
+}
+.fact .note {
+  display: block;
+  font-size: 7pt;
+  font-weight: 600;
+  color: var(--broker-blue);
+  margin-top: 1px;
+}
+
+/* ---------- Section headers ---------- */
+.section-title {
+  font-family: 'Work Sans', sans-serif;
+  font-weight: 700;
+  font-size: 9.6pt;
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: var(--broker-blue);
+  border-bottom: 1pt solid var(--broker-blue);
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+  margin-top: 16px;
+}
+.section-title:first-of-type { margin-top: 0; }
+
+.remarks-lead {
+  font-family: 'Playfair Display', serif;
+  font-style: italic;
+  font-size: 11pt;
+  color: var(--broker-blue);
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+.remarks-body {
+  font-size: 9.3pt;
+  line-height: 1.5;
+  color: var(--granite);
+  text-align: justify;
+}
+
+/* Long-remarks listings (typically detached single-family homes with
+   extensive agent copy) need a tighter type scale to still fit the
+   fixed 2-page layout -- these tiers trade a little size for keeping
+   everything on page 1 rather than spilling an extra page. */
+.remarks-body.condensed { font-size: 8.6pt; line-height: 1.38; }
+.remarks-body.tight { font-size: 8pt; line-height: 1.28; }
+.remarks-body.very-tight { font-size: 7.5pt; line-height: 1.2; }
+.remarks-lead.condensed { font-size: 10.2pt; margin-bottom: 5px; }
+.remarks-lead.tight { font-size: 9.6pt; margin-bottom: 4px; }
+
+.directions {
+  margin-top: 10px;
+  font-size: 8.2pt;
+  color: #6b6b6d;
+}
+.directions.condensed, .directions.tight, .directions.very-tight { margin-top: 6px; font-size: 7.6pt; }
+.directions b { color: var(--granite); }
+
+/* ---------- Page footer ---------- */
+
+/* ================= PAGE 2 ================= */
+.page2 { page-break-before: always; }
+
+.running-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 8pt;
+  color: var(--granite);
+  border-bottom: 1.4pt solid var(--broker-blue);
+  padding-bottom: 7px;
+  margin-bottom: 14px;
+}
+.running-head b { color: var(--broker-blue); }
+
+table.rooms {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8.6pt;
+  margin-bottom: 4px;
+}
+table.rooms.dense { font-size: 8pt; }
+table.rooms th {
+  text-align: left;
+  font-size: 6.8pt;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--granite);
+  border-bottom: 1pt solid var(--broker-blue);
+  padding: 3px 6px;
+}
+table.rooms td {
+  padding: 4px 6px;
+  border-bottom: 0.6pt solid var(--hairline);
+}
+table.rooms.dense td { padding: 2.6px 6px; }
+table.rooms tr:nth-child(even) td { background: #fafafa; }
+
+.two-col { display: flex; gap: 22px; }
+.two-col .col { flex: 1; }
+
+.feature-group { margin-bottom: 11px; }
+.feature-group.dense { margin-bottom: 7px; }
+.feature-group .g-title {
+  font-size: 7.6pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--broker-blue);
+  margin-bottom: 3px;
+}
+.feature-group .g-body {
+  font-size: 8.7pt;
+  color: var(--granite);
+  line-height: 1.45;
+}
+.feature-group.dense .g-body { font-size: 8.2pt; line-height: 1.32; }
+
+.card-row { display: flex; gap: 14px; margin-top: 4px; }
+.card {
+  flex: 1;
+  background: var(--slate);
+  border-radius: 3px;
+  padding: 9px 11px;
+}
+.card .c-title {
+  font-size: 7.2pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--broker-blue);
+  margin-bottom: 5px;
+}
+.card .c-line { font-size: 8.4pt; margin-bottom: 2px; }
+.card .c-line b { color: var(--broker-blue); }
+
+/* Denser page-2 spacing for content-heavy listings (long room lists /
+   feature sets) -- shaves margins throughout page 2 so everything still
+   lands on 2 pages instead of spilling the compliance footer alone onto
+   its own 3rd page. */
+.page2.dense .section-title { margin-top: 11px; margin-bottom: 6px; padding-bottom: 3px; }
+.page2.dense .running-head { margin-bottom: 9px; }
+.page2.dense .card { padding: 7px 10px; }
+.page2.dense .compliance { margin-top: 10px; padding-top: 7px; }
+.page2.dense .compliance .legal { line-height: 1.35; }
+.page2.dense .compliance .top-row { margin-bottom: 5px; }
+
+/* ---------- Compliance footer (page 2 only) ---------- */
+.compliance {
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1pt solid var(--hairline);
+}
+.compliance .top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.compliance img.lockup-sm { height: 22px; }
+.compliance .bugs { display: flex; gap: 6px; align-items: center; }
+.compliance .agent-line {
+  font-size: 8pt;
+  color: var(--broker-blue);
+  font-weight: 600;
+  text-align: right;
+}
+.compliance .agent-line .sub { font-weight: 400; color: var(--granite); font-size: 7.6pt; }
+.compliance .legal {
+  font-size: 6.4pt;
+  line-height: 1.5;
+  color: #8b8b8d;
+}
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1 ============ -->
+<div class="masthead">
+  <img class="lockup" src="file://{{ logo_lockup }}">
+  <div class="meta">
+    <div class="mls">MLS #{{ l.mls_number }}</div>
+    <div>Prepared for you by {{ agent_name }}</div>
+  </div>
+</div>
+
+<div class="hero-row">
+  <div class="hero-photo-box">
+    {% if photo_path %}
+    <div class="hero-photo" style="background-image: url('file://{{ photo_path }}');"></div>
+    {% endif %}
+    {% if l.status %}<div class="status-badge">{{ status_label }}</div>{% endif %}
+  </div>
+  <div class="hero-info">
+    <h1 class="serif">{{ l.street_address }}</h1>
+    <div class="city">{{ l.city_state_zip }}{% if l.ownership %} &nbsp;&middot;&nbsp; {{ l.ownership }}{% endif %}</div>
+    {% if market_time_display %}<div class="market-line">{{ market_time_display }}</div>{% endif %}
+    <div class="price-row">
+      <div class="amt">{{ l.list_price }}</div>
+      <div class="type">{{ friendly_type }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="facts-strip">
+  <div class="fact"><span class="num">{{ l.bedrooms or '—' }}</span><span class="lbl">Beds</span></div>
+  <div class="fact"><span class="num">{{ l.bathrooms_display or '—' }}</span><span class="lbl">Baths</span></div>
+  <div class="fact"><span class="num">{{ sqft_display }}</span><span class="lbl">Sq Ft</span></div>
+  <div class="fact"><span class="num text">{{ lot_size_display }}</span><span class="lbl">Lot Size</span></div>
+  <div class="fact"><span class="num">{{ l.year_built or '—' }}</span><span class="lbl">Year Built</span></div>
+</div>
+<div class="facts-strip-secondary">
+  <div class="fact">
+    <span class="num">{{ l.parking_spaces or ('—' if not l.parking_type else '') }}{{ ' ' if l.parking_spaces else '' }}{{ l.parking_type or '' }}</span>
+    <span class="lbl">Parking</span>
+    {% if parking_note %}<span class="note">{{ parking_note }}</span>{% endif %}
+  </div>
+  <div class="fact"><span class="num">{{ l.rooms_total or '—' }}</span><span class="lbl">Total Rooms</span></div>
+  {% if l.total_units or l.total_stories or l.unit_floor_level %}
+  <div class="fact"><span class="num">{{ l.total_units or '—' }}</span><span class="lbl">Total Units</span></div>
+  <div class="fact"><span class="num">{{ l.total_stories or '—' }}</span><span class="lbl">Stories</span></div>
+  <div class="fact"><span class="num">{{ l.unit_floor_level or '—' }}</span><span class="lbl">Unit Floor</span></div>
+  {% else %}
+  <div class="fact"><span class="num text">{{ basement_display or '—' }}</span><span class="lbl">Basement</span></div>
+  <div class="fact"><span class="num">{{ l.fireplaces or '—' }}</span><span class="lbl">Fireplaces</span></div>
+  <div class="fact"><span class="num">{{ l.stories or '—' }}</span><span class="lbl">Stories</span></div>
+  {% endif %}
+</div>
+
+<div class="section-title">About This Home</div>
+{% if remarks_lead %}<div class="remarks-lead {{ remarks_size_class }}">&ldquo;{{ remarks_lead }}&rdquo;</div>{% endif %}
+<div class="remarks-body {{ remarks_size_class }}">{{ remarks_rest }}</div>
+
+{% if l.directions %}
+<div class="directions {{ remarks_size_class }}"><b>Directions:</b> {{ l.directions }}</div>
+{% endif %}
+
+
+<!-- ============ PAGE 2 ============ -->
+<div class="page2 {{ 'dense' if page2_dense else '' }}">
+
+  <div class="running-head">
+    <span><b>{{ l.street_address }}</b> &nbsp;{{ l.city_state_zip }}</span>
+    <span>MLS #{{ l.mls_number }}</span>
+  </div>
+
+  {% if l.rooms %}
+  <div class="section-title">Room Dimensions</div>
+  <table class="rooms {{ 'dense' if page2_dense else '' }}">
+    <tr><th>Room</th><th>Size</th><th>Level</th><th>Flooring</th></tr>
+    {% for r in l.rooms %}
+    <tr>
+      <td>{{ r.name }}</td>
+      <td>{{ r.size if r.size and r.size != 'COMBO' else ('Combined' if r.size == 'COMBO' else '—') }}</td>
+      <td>{{ r.level or '—' }}</td>
+      <td>{{ r.flooring or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  <div class="section-title">Property Features</div>
+  <div class="two-col">
+    <div class="col">
+      {% if l.interior_features %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Interior</div><div class="g-body">{{ l.interior_features }}</div></div>{% endif %}
+      {% if l.kitchen_features or l.appliances %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Kitchen</div><div class="g-body">{% if l.kitchen_features %}{{ l.kitchen_features }}{% if l.appliances %}. {% endif %}{% endif %}{% if l.appliances %}Appliances: {{ l.appliances }}{% endif %}</div></div>{% endif %}
+      {% if l.bath_amenities %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Bath Amenities</div><div class="g-body">{{ l.bath_amenities }}</div></div>{% endif %}
+      {% if l.exterior_features %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Exterior</div><div class="g-body">{{ l.exterior_features }}</div></div>{% endif %}
+    </div>
+    <div class="col">
+      {% if l.heating or l.cooling %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Heating &amp; Cooling</div><div class="g-body">{% if l.heating %}Heat: {{ l.heating }}{% if l.cooling %}. {% endif %}{% endif %}{% if l.cooling %}AC: {{ l.cooling }}{% endif %}</div></div>{% endif %}
+      {% if l.laundry %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Laundry</div><div class="g-body">{{ l.laundry }}</div></div>{% endif %}
+      {% if l.parking_type %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Parking &amp; Garage</div><div class="g-body">{{ l.parking_type }}{% if l.parking_spaces %} &middot; {{ l.parking_spaces }} space(s){% endif %}{% if l.garage_details %} &middot; {{ l.garage_details }}{% endif %}</div></div>{% endif %}
+      {% if l.amenities %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Building Amenities</div><div class="g-body">{{ l.amenities }}</div></div>{% endif %}
+    </div>
+  </div>
+
+  <div class="section-title">Assessment, Tax &amp; Schools{% if pets_display or is_condo_like %} &amp; Pets{% endif %}</div>
+  <div class="card-row">
+    <div class="card">
+      <div class="c-title">Assessment</div>
+      {% if assessment_line_display %}<div class="c-line"><b>{{ assessment_line_display }}</b></div>{% endif %}
+      {% if l.assessment_includes and l.assessment_includes != 'None' %}<div class="c-line">Includes: {{ l.assessment_includes }}</div>{% endif %}
+      {% if l.special_assessments %}<div class="c-line">Special: {{ l.special_assessments }}</div>{% endif %}
+    </div>
+    <div class="card">
+      <div class="c-title">Property Tax</div>
+      {% if l.tax_amount %}<div class="c-line"><b>{{ l.tax_amount }}</b>{% if l.tax_year %} &nbsp;({{ l.tax_year }}){% endif %}</div>{% endif %}
+      {% if mult_pins_display %}<div class="c-line">Multiple PINs: {{ mult_pins_display }}</div>{% endif %}
+      {% if l.tax_exemptions %}<div class="c-line">Exemptions: {{ l.tax_exemptions }}</div>{% endif %}
+    </div>
+    <div class="card">
+      <div class="c-title">Schools</div>
+      {% if l.elementary %}<div class="c-line">Elem: {{ l.elementary }}</div>{% endif %}
+      {% if l.junior_high %}<div class="c-line">Jr High: {{ l.junior_high }}</div>{% endif %}
+      {% if l.high_school %}<div class="c-line">High: {{ l.high_school }}</div>{% endif %}
+    </div>
+    {% if pets_display or is_condo_like %}
+    <div class="card">
+      <div class="c-title">Pets</div>
+      {% if pets_display %}<div class="c-line">{{ pets_display }}</div>{% else %}<div class="c-line">&mdash;</div>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="compliance">
+    <div class="top-row">
+      <img class="lockup-sm" src="file://{{ logo_lockup }}">
+      <div class="bugs">
+        <svg width="17" height="17" viewBox="0 0 24 24"><rect width="24" height="24" fill="none"/><path d="M12 2 1 11h3v10h6v-6h4v6h6V11h3z" fill="#404042"/></svg>
+        <svg width="17" height="17" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="none" stroke="#404042" stroke-width="1.4"/><text x="12" y="17" text-anchor="middle" font-size="13" font-family="Work Sans" font-weight="700" fill="#404042">R</text></svg>
+      </div>
+      <div class="agent-line">
+        {{ agent_name }}
+        <div class="sub">{{ agent_phone }}{% if agent_phone and agent_email %} &nbsp;&middot;&nbsp; {% endif %}{{ agent_email }}</div>
+      </div>
+    </div>
+    <div class="legal">
+      {% if l.list_broker_name %}Listing courtesy of {{ l.list_broker_name }}{% if l.list_brokerage %}, {{ l.list_brokerage }}{% endif %}. {% endif %}
+      Information deemed reliable but not guaranteed and should be independently verified, MLS #{{ l.mls_number }}. This office is independently owned and operated.
+      Prepared {{ prepared_date }} using public MLS data; not intended as a solicitation if your property is already listed.
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
