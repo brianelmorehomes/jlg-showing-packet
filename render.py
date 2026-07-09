@@ -306,17 +306,29 @@ def tax_uncap_note(listing):
     township + school + library + everything else already blended in) --
     no external millage table needed. Applying that rate to the
     projected post-sale taxable value turns the old vague callout into
-    an actual $/yr estimate. Still hedged into a low-high range rather
-    than one number, because the one thing that materially moves this
-    property's own rate is homestead status: MI's Principal Residence
-    Exemption exempts roughly 18 mills of local school operating tax, so
-    a buyer who will homestead vs. won't can land ~18 mills apart on the
-    same taxable value. When the current owner's homestead_pct is 0 or
-    100 that swing is unambiguous and becomes the low/high ends of the
-    range; a partial/unknown split can't be cleanly separated, so that
-    case falls back to a single point estimate at the current blended
-    rate. If tax_amount itself isn't available (older/partial export),
-    falls back to the original SEV-only estimate with no dollar figure."""
+    an actual $/yr estimate.
+
+    Still two scenarios rather than one number, because the one thing
+    that materially moves this property's own rate is homestead status:
+    MI's Principal Residence Exemption exempts roughly 18 mills of local
+    school operating tax, so a buyer who will homestead vs. won't can
+    land ~18 mills apart on the same taxable value -- on a multi-million-
+    dollar taxable value that's easily a $20k+/yr difference, which is
+    real, not estimation noise. First shipped as an unlabeled "$X-$Y/yr"
+    range, but Brian pointed out a bare range that wide is hard to act on
+    without knowing which end applies -- so each figure is now labeled
+    with its scenario explicitly ("~$X/yr as non-homestead (current
+    status), or ~$Y/yr if the buyer homesteads it") rather than making
+    the reader guess. Whichever scenario matches the CURRENT owner's
+    actual homestead_pct is stated first, since that's the more likely
+    continuation for Brian's listings (mostly Southwest Michigan vacation/
+    lakefront properties bought as second homes, not primary residences).
+    When the current owner's homestead_pct is 0 or 100 the two scenarios
+    are unambiguous; a partial/unknown split can't be cleanly separated,
+    so that case falls back to a single point estimate at the current
+    blended rate. If tax_amount itself isn't available (older/partial
+    export), falls back to the original SEV-only estimate with no dollar
+    figure."""
     if (listing.state or "").strip().upper() != "MI":
         return ""
     list_price_raw = (listing.list_price or "").replace(",", "").replace("$", "")
@@ -344,23 +356,36 @@ def tax_uncap_note(listing):
 
     if tax_amt and tv:
         current_mills = tax_amt / tv * 1000
+        # homestead_mills/non_homestead_mills (rather than a plain low/high)
+        # so each dollar figure below can be labeled with which scenario it
+        # actually is, instead of handing over an unlabeled range and
+        # leaving the reader to guess which end applies to them.
         if homestead == "0":
-            low_mills, high_mills = max(current_mills - 18, 0), current_mills
+            homestead_mills, non_homestead_mills = max(current_mills - 18, 0), current_mills
+            current_is_homestead = False
         elif homestead == "100":
-            low_mills, high_mills = current_mills, current_mills + 18
+            homestead_mills, non_homestead_mills = current_mills, current_mills + 18
+            current_is_homestead = True
         else:
-            low_mills = high_mills = current_mills
-        low_est = est_new_sev * low_mills / 1000
-        high_est = est_new_sev * high_mills / 1000
-        if low_mills == high_mills:
-            range_str = f"~${low_est:,.0f}/yr"
-            homestead_clause = ""
+            homestead_mills = non_homestead_mills = current_mills
+            current_is_homestead = None
+        homestead_est = est_new_sev * homestead_mills / 1000
+        non_homestead_est = est_new_sev * non_homestead_mills / 1000
+        if homestead_mills == non_homestead_mills:
+            figure_str = f"~${homestead_est:,.0f}/yr"
+        elif current_is_homestead:
+            figure_str = (
+                f"~${homestead_est:,.0f}/yr as homestead (current status), "
+                f"or ~${non_homestead_est:,.0f}/yr if not used as a primary residence"
+            )
         else:
-            range_str = f"~${low_est:,.0f}–${high_est:,.0f}/yr"
-            homestead_clause = "; low end assumes a homestead exemption"
+            figure_str = (
+                f"~${non_homestead_est:,.0f}/yr as non-homestead (current status), "
+                f"or ~${homestead_est:,.0f}/yr if the buyer homesteads it as a primary residence"
+            )
         return (
-            f"Assuming a sale at list price, est. post-sale tax: {range_str} (taxable value resets to "
-            f"~${est_new_sev:,.0f} at this property's current effective rate{homestead_clause}). "
+            f"Assuming a sale at list price, est. post-sale tax (taxable value resets to "
+            f"~${est_new_sev:,.0f} at this property's current effective rate): {figure_str}. "
             f"Confirm with your local assessor."
         )
 
