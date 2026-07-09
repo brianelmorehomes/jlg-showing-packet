@@ -207,6 +207,14 @@ class Listing:
                         # so a real gap here means a buyer's actual future
                         # tax bill will likely be meaningfully higher than
                         # tax_amount above. See render.py's tax_uncap_note().
+    homestead_pct: str = ""  # MichRIC "Homestead %:" -- what share of the
+                              # *current* owner's tax bill is at the lower
+                              # homestead (Principal Residence Exemption)
+                              # rate vs. the higher non-homestead rate. A
+                              # buyer whose own homestead status differs
+                              # from this will see a meaningfully different
+                              # effective rate than the current bill implies
+                              # -- see render.py's tax_uncap_note().
 
     elementary: str = ""
     junior_high: str = ""

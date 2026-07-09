@@ -193,15 +193,22 @@ def assessment_line_display(listing):
 
 
 def water_features_display(listing):
-    """Combine every water-related fact into one card, in the order a
-    buyer would actually want to read them: the one unambiguous Yes/No
-    (Waterfront -- a property can have water_features/deeded access
-    without being waterfront itself, seen concretely on 2 of 3 real
-    samples this was tested against), then which body of water and how
-    much frontage, then the descriptive recreational amenities text, then
-    the practical pool/water-source/sewer facts. MichRIC listings carry
-    all of these as separate fields; called out together here rather than
-    scattered across a generic exterior-features or utilities blob.
+    """Combine the recreational/access water facts into one card, in the
+    order a buyer would actually want to read them: the one unambiguous
+    Yes/No (Waterfront -- a property can have water_features/deeded
+    access without being waterfront itself, seen concretely on 2 of 3
+    real samples this was tested against), then which body of water and
+    how much frontage, then the descriptive recreational amenities text,
+    then whether there's a pool. MichRIC listings carry all of these as
+    separate fields; called out together here rather than scattered
+    across a generic exterior-features blob.
+
+    Water SOURCE and SEWER TYPE (well/septic/public) are deliberately
+    NOT included here -- they used to be, but Brian flagged that
+    distinction as critical enough for MI buyers (a real cost/
+    maintenance consideration, not just a nice-to-know) that folding it
+    into this broader recreational-water card wasn't prominent enough.
+    They now get their own card -- see water_utilities_display() below.
 
     Now also populated for MRED, where "Waterfront:No" is the overwhelming
     majority case (ordinary city listings) -- showing a bare "Not
@@ -210,10 +217,7 @@ def water_features_display(listing):
     water-related content on the card to give it context; a bare "Yes"
     always surfaces on its own since that's genuinely notable either way."""
     parts = []
-    other_water_info = bool(
-        listing.body_of_water or listing.water_features or listing.pool
-        or listing.water_source or listing.sewer_type
-    )
+    other_water_info = bool(listing.body_of_water or listing.water_features or listing.pool)
     if listing.waterfront and (listing.waterfront.strip().lower() == "yes" or other_water_info):
         parts.append("Waterfront" if listing.waterfront.strip().lower() == "yes" else "Not Waterfront")
     if listing.body_of_water:
@@ -223,8 +227,22 @@ def water_features_display(listing):
         parts.append(listing.water_features)
     if listing.pool:
         parts.append(f"Pool: {listing.pool}")
+    return "; ".join(parts)
+
+
+def water_utilities_display(listing):
+    """Water source (public/well) and sewer type (public/septic) as their
+    own explicit card, split out from water_features_display() above.
+    Brian's guidance: for Michigan buyers specifically, well-vs-municipal
+    water and septic-vs-public sewer are real cost/maintenance facts, not
+    a minor detail to bury inside a broader recreational-water card --
+    "it's THAT important." Only populated for MichRIC currently (MRED's
+    equivalent "Water:"/"Sewer:" fields are recognized in FEAT_LABELS but
+    not yet captured -- see DEV_NOTES.md, judged lower-priority since
+    Chicago-area listings are virtually always municipal on both)."""
+    parts = []
     if listing.water_source:
-        parts.append(f"Water Source: {listing.water_source}")
+        parts.append(f"Water: {listing.water_source}")
     if listing.sewer_type:
         parts.append(f"Sewer: {listing.sewer_type}")
     return "; ".join(parts)
@@ -234,24 +252,59 @@ def tax_uncap_note(listing):
     """Michigan-specific disclosure: a property's 'taxable value' (what
     the shown property tax is actually based on) is capped year-over-year
     for the *current* owner, but uncaps to match the State Equalized
-    Value (SEV) the year after a sale/transfer of ownership -- meaning a
-    buyer's real first-year tax bill can end up meaningfully higher than
-    the seller's shown property tax. Seen concretely on 2 of 3 real
-    MichRIC samples this was tested against: SEV 41% and 70% above the
-    current taxable value, respectively. Deliberately does NOT compute or
-    promise a specific new-tax-bill number -- that's a call for the
-    buyer's agent or the local assessor, not this app -- and only fires
-    when there's a real gap (>2%, to ignore rounding noise), not on every
-    MI listing."""
+    Value (SEV) the year after a sale/transfer of ownership. The *current*
+    SEV shown on the MLS sheet reflects the current owner's situation and
+    can be stale -- what a buyer actually wants to know is what SEV, and
+    therefore taxable value, would likely become for THIS sale. Michigan
+    assessors set SEV to roughly half of a property's true cash (market)
+    value, with the sale price serving as the primary evidence used for
+    that determination the year after a transfer -- so this estimates
+    that directly: list price / 2, framed explicitly as an "assuming a
+    sale at list price" estimate rather than a promise.
+
+    Deliberately stops there rather than projecting an actual new-tax-
+    dollar figure. Doing that would also require assuming the buyer's
+    homestead status matches the current owner's, which frequently won't
+    hold -- Michigan's Principal Residence Exemption swings the effective
+    millage rate substantially, and all 3 real MichRIC samples this was
+    tested against show 0% homestead (Southwest Michigan vacation/
+    lakefront properties, not primary residences), so a same-homestead
+    assumption would be wrong more often than not for Brian's actual
+    listings. That final dollar estimate is left to the buyer's agent or
+    the local assessor, same as before -- just anchored to a concrete
+    projected SEV now instead of a vague "may uncap" with no number.
+
+    Gated to MI listings only (checked via listing.state, not merely
+    "does tax_sev/tax_taxable_value exist" -- MRED never populates those
+    fields, but an early version of this gate relied on that alone, which
+    would have let this MI-specific note fire on any MRED listing with a
+    list price)."""
+    if (listing.state or "").strip().upper() != "MI":
+        return ""
+    list_price_raw = (listing.list_price or "").replace(",", "").replace("$", "")
     tv_raw = (listing.tax_taxable_value or "").replace(",", "").replace("$", "")
-    sev_raw = (listing.tax_sev or "").replace(",", "").replace("$", "")
     try:
-        tv, sev = float(tv_raw), float(sev_raw)
+        list_price = float(list_price_raw)
     except ValueError:
         return ""
-    if not tv or not sev or sev <= tv * 1.02:
+    if not list_price:
         return ""
-    return f"MI taxable value may uncap to match SEV (${sev:,.0f}) after sale — ask your agent for an estimated post-sale tax figure."
+    est_new_sev = list_price * 0.5
+    try:
+        tv = float(tv_raw)
+    except ValueError:
+        tv = 0
+    if tv and est_new_sev <= tv * 1.02:
+        return ""
+    homestead = (listing.homestead_pct or "").strip()
+    homestead_note = ""
+    if homestead == "0":
+        homestead_note = " Currently non-homestead — your rate may differ further if you'll occupy as your primary residence."
+    return (
+        f"Assuming a sale at list price, taxable value would likely reset to ~${est_new_sev:,.0f} "
+        f"the year after closing (MI taxable value uncaps to match SEV, and SEV is set to roughly half "
+        f"of sale price)." + homestead_note + " Ask your agent for an estimated post-sale tax figure."
+    )
 
 
 def tax_exemption_note(listing):
@@ -428,6 +481,7 @@ def render_flyer(
         basement_display=basement_display(listing),
         assessment_line_display=assessment_line_display(listing),
         water_features_display=water_features_display(listing),
+        water_utilities_display=water_utilities_display(listing),
         tax_uncap_note=tax_uncap_note(listing),
         tax_exemption_note=tax_exemption_note(listing),
         price_change_note=price_change_note(listing),

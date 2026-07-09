@@ -464,6 +464,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
       {% if l.bath_amenities %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Bath Amenities</div><div class="g-body">{{ l.bath_amenities }}</div></div>{% endif %}
       {% if l.exterior_features %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Exterior</div><div class="g-body">{{ l.exterior_features }}</div></div>{% endif %}
       {% if water_features_display %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Water Access &amp; Features</div><div class="g-body">{{ water_features_display }}</div></div>{% endif %}
+      {% if water_utilities_display %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Water Source &amp; Sewer</div><div class="g-body">{{ water_utilities_display }}</div></div>{% endif %}
     </div>
     <div class="col">
       {% if l.heating or l.cooling %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Heating &amp; Cooling</div><div class="g-body">{% if l.heating %}Heat: {{ l.heating }}{% if l.cooling %}. {% endif %}{% endif %}{% if l.cooling %}AC: {{ l.cooling }}{% endif %}</div></div>{% endif %}

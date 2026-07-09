@@ -339,6 +339,16 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     if m:
         listing.tax_sev = m.group(1)
 
+    # "Homestead %:" -- what share of the *current* tax bill is at the
+    # lower homestead (Principal Residence Exemption) rate. All 3 real
+    # samples this was tested against show 0% (unsurprising -- these are
+    # Southwest Michigan lakefront/vacation properties, not primary
+    # residences), which materially affects how any post-sale tax
+    # estimate should be caveated -- see render.py's tax_uncap_note().
+    m = re.search(r"Homestead %:\s*(\d+)", text)
+    if m:
+        listing.homestead_pct = m.group(1)
+
     # --- Architectural Style / Body of Water (wrap-prone header fields) ----
     # Both live in the same 3-up header facts grid as everything above, but
     # unlike those, their *values* can land on a different visual row than
