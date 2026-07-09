@@ -8,8 +8,23 @@ import os
 import re
 import tempfile
 
+import fitz  # PyMuPDF -- used only to count pages of our own rendered
+             # output for the 2-page-cap retry loop in render_flyer()
 from jinja2 import Environment, FileSystemLoader
 from weasyprint import HTML
+
+# Page-2 density tiers, from loosest to tightest -- each name is a CSS
+# class applied to the page-2 wrapper, the room-dimensions table, and
+# every feature-group card (see flyer.html / the .page2.dense and
+# .page2.very-dense rules). render_flyer() below renders at increasing
+# tiers and actually measures the resulting PDF's page count each time,
+# rather than trying to predict ahead of time whether a given listing's
+# content will fit -- text-wrapping/height is fundamentally hard to
+# predict from field lengths alone (this is exactly how a previous
+# heuristic, "dense if room count > 12," broke: a listing added enough
+# extra feature-card content and a longer tax-disclosure note to spill a
+# 3rd page even with a totally ordinary 6-room table). See DEV_NOTES.md.
+PAGE2_TIERS = ["", "dense", "very-dense"]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -458,7 +473,9 @@ def render_flyer(
     if size_class == "very-tight":
         lead, rest = "", (listing.remarks or "").strip()
 
-    html_str = template.render(
+    # Fields that don't depend on the page-2 density tier are computed once;
+    # only page2_class changes between retry attempts below.
+    render_kwargs = dict(
         l=listing,
         font_dir=FONT_DIR,
         logo_lockup=LOGO_LOCKUP_BW if print_safe_logo else LOGO_LOCKUP,
@@ -467,7 +484,6 @@ def render_flyer(
         remarks_lead=lead,
         remarks_rest=rest,
         remarks_size_class=size_class,
-        page2_dense=len(listing.rooms or []) > 12,
         friendly_type=friendly_property_type(listing),
         agent_phone=agent_phone,
         agent_email=agent_email,
@@ -489,7 +505,31 @@ def render_flyer(
         prepared_date=datetime.date.today().strftime("%B %-d, %Y"),
     )
 
-    HTML(string=html_str, base_url=BASE_DIR).write_pdf(output_path)
+    # Start at the tier the old room-count heuristic would have picked --
+    # skips a wasted extra render/measure round-trip in the common case
+    # where that guess is already right, without relying on it being
+    # right: the loop below re-renders at a tighter tier and re-measures
+    # actual page count whenever it isn't, which is what actually
+    # guarantees the 2-page cap regardless of how much content a future
+    # field addition piles onto page 2.
+    start_tier = "dense" if len(listing.rooms or []) > 12 else ""
+    start_idx = PAGE2_TIERS.index(start_tier)
+
+    for tier_idx in range(start_idx, len(PAGE2_TIERS)):
+        html_str = template.render(page2_class=PAGE2_TIERS[tier_idx], **render_kwargs)
+        HTML(string=html_str, base_url=BASE_DIR).write_pdf(output_path)
+
+        is_last_tier = tier_idx == len(PAGE2_TIERS) - 1
+        if is_last_tier:
+            break  # tightest tier available -- ship whatever we got
+        try:
+            doc = fitz.open(output_path)
+            page_count = doc.page_count
+            doc.close()
+        except Exception:
+            break  # couldn't verify -- ship what we have rather than loop
+        if page_count <= 2:
+            break
 
     if tmp_photo:
         os.unlink(tmp_photo.name)

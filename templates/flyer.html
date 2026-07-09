@@ -277,6 +277,7 @@ table.rooms {
   margin-bottom: 4px;
 }
 table.rooms.dense { font-size: 8pt; }
+table.rooms.very-dense { font-size: 7.6pt; }
 table.rooms th {
   text-align: left;
   font-size: 6.8pt;
@@ -291,6 +292,7 @@ table.rooms td {
   border-bottom: 0.6pt solid var(--hairline);
 }
 table.rooms.dense td { padding: 2.6px 6px; }
+table.rooms.very-dense td { padding: 2px 5px; }
 table.rooms tr:nth-child(even) td { background: #fafafa; }
 
 .two-col { display: flex; gap: 22px; }
@@ -298,6 +300,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
 
 .feature-group { margin-bottom: 11px; }
 .feature-group.dense { margin-bottom: 7px; }
+.feature-group.very-dense { margin-bottom: 5px; }
 .feature-group .g-title {
   font-size: 7.6pt;
   font-weight: 700;
@@ -312,6 +315,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
   line-height: 1.45;
 }
 .feature-group.dense .g-body { font-size: 8.2pt; line-height: 1.32; }
+.feature-group.very-dense .g-body { font-size: 7.6pt; line-height: 1.24; }
 
 .card-row { display: flex; gap: 14px; margin-top: 4px; }
 .card {
@@ -332,9 +336,14 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
 .card .c-line b { color: var(--broker-blue); }
 
 /* Denser page-2 spacing for content-heavy listings (long room lists /
-   feature sets) -- shaves margins throughout page 2 so everything still
-   lands on 2 pages instead of spilling the compliance footer alone onto
-   its own 3rd page. */
+   feature sets / long tax-disclosure notes) -- shaves margins throughout
+   page 2 so everything still lands on 2 pages instead of spilling the
+   compliance footer alone onto its own 3rd page. Two escalating tiers
+   ("dense" / "very-dense") are picked and, if needed, actually verified
+   by render.py's render_flyer(), which re-renders at a tighter tier and
+   re-measures the real output page count whenever content is heavy
+   enough that even "dense" isn't enough -- see PAGE2_TIERS in render.py
+   and DEV_NOTES.md for why this is measured rather than guessed. */
 .page2.dense .section-title { margin-top: 11px; margin-bottom: 6px; padding-bottom: 3px; }
 .page2.dense .running-head { margin-bottom: 9px; }
 .page2.dense .card { padding: 7px 10px; }
@@ -342,11 +351,33 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
 .page2.dense .compliance .legal { line-height: 1.35; }
 .page2.dense .compliance .top-row { margin-bottom: 5px; }
 
+.page2.very-dense .section-title { margin-top: 8px; margin-bottom: 4px; padding-bottom: 2px; }
+.page2.very-dense .running-head { margin-bottom: 6px; }
+.page2.very-dense .card { padding: 5px 8px; }
+.page2.very-dense .card .c-title { margin-bottom: 3px; }
+.page2.very-dense .card .c-line { font-size: 7.8pt; }
+.page2.very-dense .compliance { margin-top: 6px; padding-top: 5px; }
+.page2.very-dense .compliance .legal { line-height: 1.25; }
+.page2.very-dense .compliance .top-row { margin-bottom: 3px; }
+
 /* ---------- Compliance footer (page 2 only) ---------- */
 .compliance {
   margin-top: 18px;
   padding-top: 10px;
   border-top: 1pt solid var(--hairline);
+  /* Never let the logo/agent row and the legal paragraph split across a
+     page boundary from each other -- if the whole block doesn't fit,
+     WeasyPrint should push it as a unit rather than stranding just the
+     .legal text alone on its own otherwise-blank page (a real, ugly
+     failure mode seen in production: page 2 ends with visible empty
+     space, then page 3 is nothing but the disclaimer paragraph). This is
+     a defensive backstop -- the retry loop in render.py's render_flyer()
+     is what actually prevents the 3rd page from happening in the first
+     place, but this keeps a worst-case failure looking intentional
+     rather than broken if content is ever heavy enough to blow past even
+     the tightest density tier. */
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 .compliance .top-row {
   display: flex;
@@ -434,7 +465,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
 
 
 <!-- ============ PAGE 2 ============ -->
-<div class="page2 {{ 'dense' if page2_dense else '' }}">
+<div class="page2 {{ page2_class }}">
 
   <div class="running-head">
     <span><b>{{ l.street_address }}</b> &nbsp;{{ l.city_state_zip }}</span>
@@ -443,7 +474,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
 
   {% if l.rooms %}
   <div class="section-title">Room Dimensions</div>
-  <table class="rooms {{ 'dense' if page2_dense else '' }}">
+  <table class="rooms {{ page2_class }}">
     <tr><th>Room</th><th>Size</th><th>Level</th><th>Flooring</th></tr>
     {% for r in l.rooms %}
     <tr>
@@ -459,18 +490,18 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
   <div class="section-title">Property Features</div>
   <div class="two-col">
     <div class="col">
-      {% if l.interior_features %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Interior</div><div class="g-body">{{ l.interior_features }}</div></div>{% endif %}
-      {% if l.kitchen_features or l.appliances %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Kitchen</div><div class="g-body">{% if l.kitchen_features %}{{ l.kitchen_features }}{% if l.appliances %}. {% endif %}{% endif %}{% if l.appliances %}Appliances: {{ l.appliances }}{% endif %}</div></div>{% endif %}
-      {% if l.bath_amenities %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Bath Amenities</div><div class="g-body">{{ l.bath_amenities }}</div></div>{% endif %}
-      {% if l.exterior_features %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Exterior</div><div class="g-body">{{ l.exterior_features }}</div></div>{% endif %}
-      {% if water_features_display %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Water Access &amp; Features</div><div class="g-body">{{ water_features_display }}</div></div>{% endif %}
-      {% if water_utilities_display %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Water Source &amp; Sewer</div><div class="g-body">{{ water_utilities_display }}</div></div>{% endif %}
+      {% if l.interior_features %}<div class="feature-group {{ page2_class }}"><div class="g-title">Interior</div><div class="g-body">{{ l.interior_features }}</div></div>{% endif %}
+      {% if l.kitchen_features or l.appliances %}<div class="feature-group {{ page2_class }}"><div class="g-title">Kitchen</div><div class="g-body">{% if l.kitchen_features %}{{ l.kitchen_features }}{% if l.appliances %}. {% endif %}{% endif %}{% if l.appliances %}Appliances: {{ l.appliances }}{% endif %}</div></div>{% endif %}
+      {% if l.bath_amenities %}<div class="feature-group {{ page2_class }}"><div class="g-title">Bath Amenities</div><div class="g-body">{{ l.bath_amenities }}</div></div>{% endif %}
+      {% if l.exterior_features %}<div class="feature-group {{ page2_class }}"><div class="g-title">Exterior</div><div class="g-body">{{ l.exterior_features }}</div></div>{% endif %}
+      {% if water_features_display %}<div class="feature-group {{ page2_class }}"><div class="g-title">Water Access &amp; Features</div><div class="g-body">{{ water_features_display }}</div></div>{% endif %}
+      {% if water_utilities_display %}<div class="feature-group {{ page2_class }}"><div class="g-title">Water Source &amp; Sewer</div><div class="g-body">{{ water_utilities_display }}</div></div>{% endif %}
     </div>
     <div class="col">
-      {% if l.heating or l.cooling %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Heating &amp; Cooling</div><div class="g-body">{% if l.heating %}Heat: {{ l.heating }}{% if l.cooling %}. {% endif %}{% endif %}{% if l.cooling %}AC: {{ l.cooling }}{% endif %}</div></div>{% endif %}
-      {% if l.laundry %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Laundry</div><div class="g-body">{{ l.laundry }}</div></div>{% endif %}
-      {% if l.parking_type %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Parking &amp; Garage</div><div class="g-body">{{ l.parking_type }}{% if l.parking_spaces %} &middot; {{ l.parking_spaces }} space(s){% endif %}{% if l.garage_details %} &middot; {{ l.garage_details }}{% endif %}</div></div>{% endif %}
-      {% if l.amenities %}<div class="feature-group {{ 'dense' if page2_dense else '' }}"><div class="g-title">Building Amenities</div><div class="g-body">{{ l.amenities }}</div></div>{% endif %}
+      {% if l.heating or l.cooling %}<div class="feature-group {{ page2_class }}"><div class="g-title">Heating &amp; Cooling</div><div class="g-body">{% if l.heating %}Heat: {{ l.heating }}{% if l.cooling %}. {% endif %}{% endif %}{% if l.cooling %}AC: {{ l.cooling }}{% endif %}</div></div>{% endif %}
+      {% if l.laundry %}<div class="feature-group {{ page2_class }}"><div class="g-title">Laundry</div><div class="g-body">{{ l.laundry }}</div></div>{% endif %}
+      {% if l.parking_type %}<div class="feature-group {{ page2_class }}"><div class="g-title">Parking &amp; Garage</div><div class="g-body">{{ l.parking_type }}{% if l.parking_spaces %} &middot; {{ l.parking_spaces }} space(s){% endif %}{% if l.garage_details %} &middot; {{ l.garage_details }}{% endif %}</div></div>{% endif %}
+      {% if l.amenities %}<div class="feature-group {{ page2_class }}"><div class="g-title">Building Amenities</div><div class="g-body">{{ l.amenities }}</div></div>{% endif %}
     </div>
   </div>
 
