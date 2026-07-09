@@ -523,9 +523,28 @@ def feature_groups(listing, water_features_display_val, water_utilities_display_
     if listing.laundry:
         groups.append(("Laundry", listing.laundry))
     if listing.parking_type:
-        body = listing.parking_type
+        # Lead with Attached/Detached when known -- "Garage" alone (the
+        # broad category from the page-1 header) doesn't answer the
+        # question buyers actually ask. Folded into the type itself
+        # ("Detached Garage") rather than tacked on as another
+        # middle-dot segment, since it reads more naturally as one fact.
+        lead = listing.parking_type
+        gtype = (listing.garage_type or "").strip()
+        if gtype and "garage" in lead.lower():
+            lead = f"{gtype} {lead}"
+        elif gtype:
+            lead = f"{lead} ({gtype})"
+        body = lead
         if listing.parking_spaces:
             body += f" · {listing.parking_spaces} space(s)"
+        # Ownership status (Owned / Leased / Deeded / "Sold Separately
+        # ($X)") is worth showing here even without a dollar figure --
+        # parking_note() near the price only surfaces this field when it
+        # contains "$" (that one's specifically about cost), but "Owned"
+        # vs. "Leased" is a real fact this card should carry regardless.
+        ownership = (listing.garage_ownership or "").strip()
+        if ownership:
+            body += f" · {ownership}"
         if listing.garage_details:
             body += f" · {listing.garage_details}"
         groups.append(("Parking & Garage", body))

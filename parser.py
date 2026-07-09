@@ -171,6 +171,16 @@ class Listing:
     parking_type: str = ""
     parking_spaces: str = ""
     garage_details: str = ""
+    garage_type: str = ""  # MRED "Garage Type:" -- Attached / Detached.
+                            # parking_type only says the broad category
+                            # ("Garage" vs "Space/s" vs "Driveway" etc,
+                            # from the page-1 header "Parking:" field);
+                            # this is the specific attached-vs-detached
+                            # fact buyers actually ask about, and lives in
+                            # a completely different part of the sheet (the
+                            # feature grid, not the header), so it needs
+                            # its own field rather than folding into
+                            # parking_type. See render.py's feature_groups().
     garage_ownership: str = ""  # MRED "Garage Ownership:" -- e.g. "Deeded
                                  # Sold Separately ($25,000)". A financially
                                  # significant detail that parking_incl_in_
@@ -767,6 +777,14 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     garage_ownership = _grab_feat(feat_col2, "Garage Ownership")
     if garage_ownership and not _is_nullish(garage_ownership):
         listing.garage_ownership = garage_ownership
+
+    # "Garage Type:" (Attached/Detached) -- same "recognized as a
+    # FEAT_LABELS stop but never actually grabbed" gap as Garage
+    # Ownership above. Lives in the same feature-grid column as Garage
+    # Details/Garage Ownership, right next to them on the sheet.
+    garage_type = _grab_feat(feat_col2, "Garage Type")
+    if garage_type and not _is_nullish(garage_type):
+        listing.garage_type = garage_type
 
     # Number of stories in the home itself (distinct from a condo building's
     # "# Stories:", which is about the building, not the unit) -- shown as
