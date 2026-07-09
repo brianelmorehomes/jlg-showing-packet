@@ -293,11 +293,35 @@ def tax_uncap_note(listing):
     "does tax_sev/tax_taxable_value exist" -- MRED never populates those
     fields, but an early version of this gate relied on that alone, which
     would have let this MI-specific note fire on any MRED listing with a
-    list price)."""
+    list price).
+
+    Originally stopped at the projected SEV and punted the actual dollar
+    figure to "ask your agent" -- deliberately avoided computing a tax
+    estimate because that requires a millage rate, and this app has no
+    way to look one up. But the millage rate doesn't need to be looked
+    up: every MichRIC sheet already shows this exact parcel's own current
+    tax_amount and tax_taxable_value, and MI tax bills are computed
+    directly off taxable value, so tax_amount / tax_taxable_value * 1000
+    *is* this property's real, current, all-in mill rate (county +
+    township + school + library + everything else already blended in) --
+    no external millage table needed. Applying that rate to the
+    projected post-sale taxable value turns the old vague callout into
+    an actual $/yr estimate. Still hedged into a low-high range rather
+    than one number, because the one thing that materially moves this
+    property's own rate is homestead status: MI's Principal Residence
+    Exemption exempts roughly 18 mills of local school operating tax, so
+    a buyer who will homestead vs. won't can land ~18 mills apart on the
+    same taxable value. When the current owner's homestead_pct is 0 or
+    100 that swing is unambiguous and becomes the low/high ends of the
+    range; a partial/unknown split can't be cleanly separated, so that
+    case falls back to a single point estimate at the current blended
+    rate. If tax_amount itself isn't available (older/partial export),
+    falls back to the original SEV-only estimate with no dollar figure."""
     if (listing.state or "").strip().upper() != "MI":
         return ""
     list_price_raw = (listing.list_price or "").replace(",", "").replace("$", "")
     tv_raw = (listing.tax_taxable_value or "").replace(",", "").replace("$", "")
+    tax_raw = (listing.tax_amount or "").replace(",", "").replace("$", "")
     try:
         list_price = float(list_price_raw)
     except ValueError:
@@ -312,6 +336,34 @@ def tax_uncap_note(listing):
     if tv and est_new_sev <= tv * 1.02:
         return ""
     homestead = (listing.homestead_pct or "").strip()
+
+    try:
+        tax_amt = float(tax_raw)
+    except ValueError:
+        tax_amt = 0
+
+    if tax_amt and tv:
+        current_mills = tax_amt / tv * 1000
+        if homestead == "0":
+            low_mills, high_mills = max(current_mills - 18, 0), current_mills
+        elif homestead == "100":
+            low_mills, high_mills = current_mills, current_mills + 18
+        else:
+            low_mills = high_mills = current_mills
+        low_est = est_new_sev * low_mills / 1000
+        high_est = est_new_sev * high_mills / 1000
+        if low_mills == high_mills:
+            range_str = f"~${low_est:,.0f}/yr"
+            homestead_clause = ""
+        else:
+            range_str = f"~${low_est:,.0f}–${high_est:,.0f}/yr"
+            homestead_clause = "; low end assumes a homestead exemption"
+        return (
+            f"Assuming a sale at list price, est. post-sale tax: {range_str} (taxable value resets to "
+            f"~${est_new_sev:,.0f} at this property's current effective rate{homestead_clause}). "
+            f"Confirm with your local assessor."
+        )
+
     homestead_note = ""
     if homestead == "0":
         homestead_note = " Currently non-homestead — your rate may differ further if you'll occupy as your primary residence."
@@ -407,6 +459,79 @@ def rooms_columns(listing, n_cols=3):
         return []
     per_col = -(-len(rooms) // n_cols)  # ceil division
     return [rooms[i:i + per_col] for i in range(0, len(rooms), per_col) if rooms[i:i + per_col]]
+
+
+def feature_groups(listing, water_features_display_val, water_utilities_display_val):
+    """Build the full list of populated Property Features groups as
+    (title, body) pairs -- every group that flyer.html's Property
+    Features section can show, in the order they'd naturally read.
+    Consumed by feature_columns() below rather than rendered directly;
+    kept as its own function so the group list (what counts as a
+    "group," how each one's body text is assembled) lives in exactly one
+    place instead of being duplicated between a Python balancer and a
+    Jinja template."""
+    groups = []
+    if listing.interior_features:
+        groups.append(("Interior", listing.interior_features))
+    if listing.kitchen_features or listing.appliances:
+        parts = []
+        if listing.kitchen_features:
+            parts.append(listing.kitchen_features + ("." if listing.appliances else ""))
+        if listing.appliances:
+            parts.append(f"Appliances: {listing.appliances}")
+        groups.append(("Kitchen", " ".join(parts)))
+    if listing.bath_amenities:
+        groups.append(("Bath Amenities", listing.bath_amenities))
+    if listing.exterior_features:
+        groups.append(("Exterior", listing.exterior_features))
+    if water_features_display_val:
+        groups.append(("Water Access & Features", water_features_display_val))
+    if water_utilities_display_val:
+        groups.append(("Water Source & Sewer", water_utilities_display_val))
+    if listing.heating or listing.cooling:
+        parts = []
+        if listing.heating:
+            parts.append(f"Heat: {listing.heating}" + ("." if listing.cooling else ""))
+        if listing.cooling:
+            parts.append(f"AC: {listing.cooling}")
+        groups.append(("Heating & Cooling", " ".join(parts)))
+    if listing.laundry:
+        groups.append(("Laundry", listing.laundry))
+    if listing.parking_type:
+        body = listing.parking_type
+        if listing.parking_spaces:
+            body += f" · {listing.parking_spaces} space(s)"
+        if listing.garage_details:
+            body += f" · {listing.garage_details}"
+        groups.append(("Parking & Garage", body))
+    if listing.amenities:
+        groups.append(("Building Amenities", listing.amenities))
+    return groups
+
+
+def feature_columns(listing, water_features_display_val, water_utilities_display_val):
+    """Split feature_groups() into two columns, greedily adding each
+    group to whichever column currently has less total content
+    (character count as a proxy for rendered height at a roughly-fixed
+    font size). Previously the template hardcoded a fixed left/right
+    split (Interior/Kitchen/Bath/Exterior/Water always left, Heating/
+    Laundry/Parking/Amenities always right) -- reliably left-heavy for
+    any listing that populates most of the left-hand fields, which is
+    the common case, and got worse once Water Source & Sewer became its
+    own group. Balancing by actual content adapts to whatever mix of
+    fields a given listing populates instead of favoring one side by
+    construction."""
+    groups = feature_groups(listing, water_features_display_val, water_utilities_display_val)
+    col1, col2, weight1, weight2 = [], [], 0, 0
+    for title, body in groups:
+        w = len(title) + len(body)
+        if weight1 <= weight2:
+            col1.append({"title": title, "body": body})
+            weight1 += w
+        else:
+            col2.append({"title": title, "body": body})
+            weight2 += w
+    return col1, col2
 
 
 def render_flyer(
@@ -506,6 +631,9 @@ def render_flyer(
 
     # Fields that don't depend on the page-2 density tier are computed once;
     # only page2_class changes between retry attempts below.
+    wfd = water_features_display(listing)
+    wud = water_utilities_display(listing)
+    feature_col1, feature_col2 = feature_columns(listing, wfd, wud)
     render_kwargs = dict(
         l=listing,
         font_dir=FONT_DIR,
@@ -529,8 +657,10 @@ def render_flyer(
         pets_display=pets_display(listing),
         basement_display=basement_display(listing),
         assessment_line_display=assessment_line_display(listing),
-        water_features_display=water_features_display(listing),
-        water_utilities_display=water_utilities_display(listing),
+        water_features_display=wfd,
+        water_utilities_display=wud,
+        feature_col1=feature_col1,
+        feature_col2=feature_col2,
         tax_uncap_note=tax_uncap_note(listing),
         tax_exemption_note=tax_exemption_note(listing),
         price_change_note=price_change_note(listing),

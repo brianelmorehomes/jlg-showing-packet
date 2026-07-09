@@ -539,18 +539,10 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
   <div class="section-title">Property Features</div>
   <div class="two-col">
     <div class="col">
-      {% if l.interior_features %}<div class="feature-group {{ page2_class }}"><div class="g-title">Interior</div><div class="g-body">{{ l.interior_features }}</div></div>{% endif %}
-      {% if l.kitchen_features or l.appliances %}<div class="feature-group {{ page2_class }}"><div class="g-title">Kitchen</div><div class="g-body">{% if l.kitchen_features %}{{ l.kitchen_features }}{% if l.appliances %}. {% endif %}{% endif %}{% if l.appliances %}Appliances: {{ l.appliances }}{% endif %}</div></div>{% endif %}
-      {% if l.bath_amenities %}<div class="feature-group {{ page2_class }}"><div class="g-title">Bath Amenities</div><div class="g-body">{{ l.bath_amenities }}</div></div>{% endif %}
-      {% if l.exterior_features %}<div class="feature-group {{ page2_class }}"><div class="g-title">Exterior</div><div class="g-body">{{ l.exterior_features }}</div></div>{% endif %}
-      {% if water_features_display %}<div class="feature-group {{ page2_class }}"><div class="g-title">Water Access &amp; Features</div><div class="g-body">{{ water_features_display }}</div></div>{% endif %}
-      {% if water_utilities_display %}<div class="feature-group {{ page2_class }}"><div class="g-title">Water Source &amp; Sewer</div><div class="g-body">{{ water_utilities_display }}</div></div>{% endif %}
+      {% for g in feature_col1 %}<div class="feature-group {{ page2_class }}"><div class="g-title">{{ g.title }}</div><div class="g-body">{{ g.body }}</div></div>{% endfor %}
     </div>
     <div class="col">
-      {% if l.heating or l.cooling %}<div class="feature-group {{ page2_class }}"><div class="g-title">Heating &amp; Cooling</div><div class="g-body">{% if l.heating %}Heat: {{ l.heating }}{% if l.cooling %}. {% endif %}{% endif %}{% if l.cooling %}AC: {{ l.cooling }}{% endif %}</div></div>{% endif %}
-      {% if l.laundry %}<div class="feature-group {{ page2_class }}"><div class="g-title">Laundry</div><div class="g-body">{{ l.laundry }}</div></div>{% endif %}
-      {% if l.parking_type %}<div class="feature-group {{ page2_class }}"><div class="g-title">Parking &amp; Garage</div><div class="g-body">{{ l.parking_type }}{% if l.parking_spaces %} &middot; {{ l.parking_spaces }} space(s){% endif %}{% if l.garage_details %} &middot; {{ l.garage_details }}{% endif %}</div></div>{% endif %}
-      {% if l.amenities %}<div class="feature-group {{ page2_class }}"><div class="g-title">Building Amenities</div><div class="g-body">{{ l.amenities }}</div></div>{% endif %}
+      {% for g in feature_col2 %}<div class="feature-group {{ page2_class }}"><div class="g-title">{{ g.title }}</div><div class="g-body">{{ g.body }}</div></div>{% endfor %}
     </div>
   </div>
 
