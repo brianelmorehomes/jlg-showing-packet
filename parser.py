@@ -175,6 +175,17 @@ class Listing:
                                # separate from exterior_features so it can
                                # get its own prominent card on waterfront
                                # listings instead of being buried
+    pool: str = ""  # also surfaced on the Water Access & Features card,
+                     # not folded into exterior_features -- see render.py's
+                     # water_features_display()
+    water_source: str = ""  # e.g. MichRIC "Water:" -- Public/Well. A
+                             # well-vs-municipal distinction is a real,
+                             # cost-relevant fact for MI buyers specifically
+                             # (rural/lakefront properties), so it's kept
+                             # separate rather than folded into a generic
+                             # utilities blob and risking getting buried.
+    sewer_type: str = ""  # e.g. MichRIC "Sewer:" -- Public Sewer/Septic
+                           # Tank. Same reasoning as water_source.
     heating: str = ""
     cooling: str = ""
     kitchen_features: str = ""

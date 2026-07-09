@@ -438,8 +438,11 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             ext_parts.append(f"Fencing: {fencing}")
         if landscape and not _is_nullish(landscape):
             ext_parts.append(f"Landscape: {landscape}")
-        if pool and not _is_nullish(pool):
-            ext_parts.append(f"Pool: {pool}")
+        # Pool is deliberately NOT added to ext_parts/exterior_features --
+        # it's surfaced on the Water Access & Features card instead (see
+        # listing.pool below and render.py's water_features_display()),
+        # since a pool is water-related and buyers scanning for water
+        # amenities on a listing shouldn't have to also check Exterior.
         if ext_note and not _is_nullish(ext_note):
             ext_parts.append(ext_note)
         if patio_porch and not _is_nullish(patio_porch):
@@ -453,6 +456,9 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         water_feat = _grab_feat(ext_flat, "Water Fea. Amenities", FEAT_STOPS)
         if water_feat and not _is_nullish(water_feat):
             listing.water_features = water_feat
+
+        if pool and not _is_nullish(pool):
+            listing.pool = pool
 
         # The flyer's quick-fact strip has room for a short category
         # ("Attached Garage"), not the full semicolon-separated features
@@ -491,6 +497,23 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             sub = _grab_feat(con_flat, "Substructure", FEAT_STOPS)
             if sub and not _is_nullish(sub):
                 listing.basement = sub
+
+        # Whether a home is on municipal water/sewer or a private well and
+        # septic system is a significant, cost-relevant fact for buyers on
+        # rural/lakefront Michigan properties specifically (well and
+        # septic systems carry their own maintenance/inspection/repair
+        # considerations that municipal service doesn't) -- like Pool,
+        # these get their own dedicated fields surfaced on the Water
+        # Access & Features card rather than being silently dropped (both
+        # labels were already in FEAT_STOPS purely as boundary markers for
+        # other grabs, but neither was ever actually captured into a
+        # Listing field until now).
+        water_src = _grab_feat(con_flat, "Water", FEAT_STOPS)
+        if water_src and not _is_nullish(water_src):
+            listing.water_source = water_src
+        sewer = _grab_feat(con_flat, "Sewer", FEAT_STOPS)
+        if sewer and not _is_nullish(sewer):
+            listing.sewer_type = sewer
 
         # --- Additional Details (same 3-up grid, next section down) -------
         if ad_header:

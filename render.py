@@ -167,6 +167,26 @@ def assessment_line_display(listing):
     return f"{amt} / {listing.assessment_frequency or 'mo'}"
 
 
+def water_features_display(listing):
+    """Combine recreational water access/amenities with the practical
+    water-source and sewer/septic facts into one card. MichRIC listings
+    carry these as separate fields; a pool and a well-vs-municipal-water
+    or septic-vs-public-sewer distinction are each significant,
+    cost-relevant facts on rural/lakefront Michigan properties
+    specifically, so they're called out here rather than buried in a
+    generic exterior-features or utilities blob."""
+    parts = []
+    if listing.water_features:
+        parts.append(listing.water_features)
+    if listing.pool:
+        parts.append(f"Pool: {listing.pool}")
+    if listing.water_source:
+        parts.append(f"Water Source: {listing.water_source}")
+    if listing.sewer_type:
+        parts.append(f"Sewer: {listing.sewer_type}")
+    return "; ".join(parts)
+
+
 def remarks_size_class(remarks: str):
     """Longer agent remarks (common on content-rich detached single-family
     listings) need a tighter type scale to still fit page 1 of the fixed
@@ -298,6 +318,7 @@ def render_flyer(
         pets_display=pets_display(listing),
         basement_display=basement_display(listing),
         assessment_line_display=assessment_line_display(listing),
+        water_features_display=water_features_display(listing),
         is_condo_like=(listing.ownership or "").strip().lower() in ("condo", "co-op"),
         prepared_date=datetime.date.today().strftime("%B %-d, %Y"),
     )
