@@ -163,9 +163,61 @@ def _find_word_top(words, text, after_top=None):
     return None
 
 
+def _split_boundary_merged_words(words, boundaries):
+    """Some source PDFs (seen on a "flexmls Web" MichRIC export, a
+    different export flavor than the ones this parser was originally
+    tuned against) have a text-layer defect where two ADJACENT COLUMNS'
+    words merge into one literal pdfplumber word token whenever there's
+    zero horizontal gap between them right at a column boundary -- e.g.
+    one column's wrapped "Low-" running directly into the next column's
+    "Main Level Primary:Yes" as one glued token "Low-Main". Bucketing a
+    whole word into a column by its x0 (the normal, deliberately-word-
+    safe approach -- see _column_text's docstring) then puts the ENTIRE
+    merged token into whichever column its x0 falls in, corrupting that
+    column's value AND silently starving the other column of its first
+    word -- which cascades into a second failure: e.g. Appliances
+    swallowing "Level Primary:Yes" wholesale because the FEAT_STOPS
+    boundary "Main Level Primary:" can no longer match text that's
+    missing its leading "Main".
+
+    Splits a word only when BOTH of these hold, to keep this from ever
+    firing on ordinary same-column text:
+      1. Its bounding box actually straddles one of the known column-cut
+         x-coordinates (the geometric signature of this exact defect --
+         "MichRIC" in the compliance footer, for instance, is nowhere
+         near these boundaries and is untouched).
+      2. Its text has a lowercase/hyphen-to-uppercase transition, AND
+         the tail after that transition isn't itself all-uppercase (so
+         "MichRIC" -> "Mich"/"RIC" is still never split even if it
+         somehow were near a boundary, since "RIC" is all-caps -- this
+         is what tells a real merged-value boundary like "GarageLot" ->
+         "Garage"/"Lot" apart from an acronym-suffixed proper noun)."""
+    out = []
+    for w in words:
+        text = w["text"]
+        split_at = None
+        for m in re.finditer(r"[a-z-](?=[A-Z])", text):
+            idx = m.start() + 1
+            first, second = text[:idx], text[idx:]
+            if len(first) < 2 or len(second) < 2 or second.isupper():
+                continue
+            if any(w["x0"] < b < w["x1"] for b in boundaries):
+                split_at = idx
+                break
+        if split_at is None:
+            out.append(w)
+            continue
+        first_text, second_text = text[:split_at], text[split_at:]
+        split_x = w["x0"] + (w["x1"] - w["x0"]) * (len(first_text) / len(text))
+        out.append(dict(w, text=first_text, x1=split_x))
+        out.append(dict(w, text=second_text, x0=split_x))
+    return out
+
+
 def _three_cols(words, left_margin, top_min, top_max, page_width):
     b1 = left_margin + _COL2_OFFSET
     b2 = left_margin + _COL3_OFFSET
+    words = _split_boundary_merged_words(words, [b1, b2])
     col1 = _column_text(words, 0, b1, top_min, top_max)
     col2 = _column_text(words, b1, b2, top_min, top_max)
     col3 = _column_text(words, b2, page_width, top_min, top_max)

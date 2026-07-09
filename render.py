@@ -378,6 +378,37 @@ def remarks_size_class(remarks: str):
     return ""
 
 
+def rooms_use_compact(listing):
+    """True when no room in this listing has any size or flooring data --
+    the case where the standard 4-column table (Room/Size/Level/Flooring)
+    wastes roughly half its width on "--" placeholders on every row.
+    This is the overwhelming common case for MichRIC listings, whose
+    source sheets seem to typically carry only room name + level (unlike
+    MRED's reliably-populated per-room square footage and flooring) --
+    confirmed on a real 20-room MichRIC sample that couldn't be made to
+    fit in 2 pages even at the tightest density tier until this was
+    added. Checked per-listing (not per-MLS) so a MichRIC sheet that does
+    carry real dimensions, or a rare MRED sheet that doesn't, both still
+    get whichever layout actually fits their real data."""
+    rooms = listing.rooms or []
+    if not rooms:
+        return False
+    return not any((r.get("size") or "").strip() or (r.get("flooring") or "").strip() for r in rooms)
+
+
+def rooms_columns(listing, n_cols=3):
+    """Split listing.rooms into n_cols roughly-equal columns for the
+    compact room list layout. Splitting into columns (rather than one
+    long single-column list) is what actually saves vertical space for
+    room-heavy listings; 3 columns loosely mirrors the MichRIC source
+    sheet's own 3-up room-list presentation."""
+    rooms = listing.rooms or []
+    if not rooms:
+        return []
+    per_col = -(-len(rooms) // n_cols)  # ceil division
+    return [rooms[i:i + per_col] for i in range(0, len(rooms), per_col) if rooms[i:i + per_col]]
+
+
 def render_flyer(
     listing,
     output_path,
@@ -484,6 +515,8 @@ def render_flyer(
         remarks_lead=lead,
         remarks_rest=rest,
         remarks_size_class=size_class,
+        rooms_use_compact=rooms_use_compact(listing),
+        rooms_columns=rooms_columns(listing),
         friendly_type=friendly_property_type(listing),
         agent_phone=agent_phone,
         agent_email=agent_email,

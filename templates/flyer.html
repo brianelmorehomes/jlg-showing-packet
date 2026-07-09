@@ -295,6 +295,37 @@ table.rooms.dense td { padding: 2.6px 6px; }
 table.rooms.very-dense td { padding: 2px 5px; }
 table.rooms tr:nth-child(even) td { background: #fafafa; }
 
+/* Compact room list -- used instead of table.rooms when no room in the
+   listing has any size/flooring data (see rooms_use_compact() in
+   render.py). 3 columns instead of 1 wide table is what actually saves
+   vertical space for room-heavy listings. */
+.rooms-compact {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+.rooms-compact-col { flex: 1; min-width: 0; }
+.rooms-compact-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 8.6pt;
+  padding: 3.5px 6px;
+  border-bottom: 0.6pt solid var(--hairline);
+}
+.rooms-compact-item:nth-child(even) { background: #fafafa; }
+.rooms-compact-item .rn { color: var(--granite); }
+.rooms-compact-item .rl {
+  flex-shrink: 0;
+  color: #8b8b8d;
+  font-size: 7.3pt;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rooms-compact.dense .rooms-compact-item { font-size: 8pt; padding: 2.6px 6px; }
+.rooms-compact.very-dense .rooms-compact-item { font-size: 7.6pt; padding: 2px 5px; }
+
 .two-col { display: flex; gap: 22px; }
 .two-col .col { flex: 1; }
 
@@ -474,6 +505,23 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
 
   {% if l.rooms %}
   <div class="section-title">Room Dimensions</div>
+  {% if rooms_use_compact %}
+  <!-- No room in this listing has any size/flooring data (the common
+       case for MichRIC sheets, which typically only carry room name +
+       level) -- the 4-column table below would waste roughly half its
+       width on "--" placeholders on every row. This compact multi-column
+       name+level list uses the horizontal space instead of the vertical
+       space, which is what actually matters for room-heavy listings. -->
+  <div class="rooms-compact {{ page2_class }}">
+    {% for col in rooms_columns %}
+    <div class="rooms-compact-col">
+      {% for r in col %}
+      <div class="rooms-compact-item"><span class="rn">{{ r.name }}</span>{% if r.level %}<span class="rl">{{ r.level }}</span>{% endif %}</div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
   <table class="rooms {{ page2_class }}">
     <tr><th>Room</th><th>Size</th><th>Level</th><th>Flooring</th></tr>
     {% for r in l.rooms %}
@@ -485,6 +533,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
     </tr>
     {% endfor %}
   </table>
+  {% endif %}
   {% endif %}
 
   <div class="section-title">Property Features</div>
