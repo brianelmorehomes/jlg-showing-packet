@@ -57,18 +57,30 @@ def split_remarks(remarks: str):
 
 def friendly_property_type(listing):
     """MRED's raw property_type strings ('Attached Single', 'Detached Single')
-    are MLS jargon; prefer a buyer-friendly label when we can infer one."""
+    are MLS jargon; prefer a buyer-friendly label when we can infer one.
+    Also folds in architectural_style (e.g. MichRIC "Contemporary"/"Ranch")
+    and a New Construction callout when present -- both are distinguishing,
+    marketable facts that deserve the same high-visibility spot right next
+    to the price, not a separate card a buyer might skim past."""
     ownership = (listing.ownership or "").strip().lower()
     ptype = (listing.property_type or "").strip()
     if ownership == "condo":
-        return "Condominium"
-    if ownership == "co-op":
-        return "Co-op"
-    if "attached" in ptype.lower():
-        return "Attached Home"
-    if "detached" in ptype.lower():
-        return "Single Family Home"
-    return ptype or "Residential"
+        base = "Condominium"
+    elif ownership == "co-op":
+        base = "Co-op"
+    elif "attached" in ptype.lower():
+        base = "Attached Home"
+    elif "detached" in ptype.lower():
+        base = "Single Family Home"
+    else:
+        base = ptype or "Residential"
+
+    style = (listing.architectural_style or "").strip()
+    if style and style.lower() not in ("other", "n/a", "none"):
+        base = f"{base} · {style}"
+    if (listing.new_construction or "").strip().lower() == "yes":
+        base = f"New Construction · {base}"
+    return base
 
 
 def lot_size_display(listing):
@@ -168,14 +180,21 @@ def assessment_line_display(listing):
 
 
 def water_features_display(listing):
-    """Combine recreational water access/amenities with the practical
-    water-source and sewer/septic facts into one card. MichRIC listings
-    carry these as separate fields; a pool and a well-vs-municipal-water
-    or septic-vs-public-sewer distinction are each significant,
-    cost-relevant facts on rural/lakefront Michigan properties
-    specifically, so they're called out here rather than buried in a
-    generic exterior-features or utilities blob."""
+    """Combine every water-related fact into one card, in the order a
+    buyer would actually want to read them: the one unambiguous Yes/No
+    (Waterfront -- a property can have water_features/deeded access
+    without being waterfront itself, seen concretely on 2 of 3 real
+    samples this was tested against), then which body of water and how
+    much frontage, then the descriptive recreational amenities text, then
+    the practical pool/water-source/sewer facts. MichRIC listings carry
+    all of these as separate fields; called out together here rather than
+    scattered across a generic exterior-features or utilities blob."""
     parts = []
+    if listing.waterfront:
+        parts.append("Waterfront" if listing.waterfront.strip().lower() == "yes" else "Not Waterfront")
+    if listing.body_of_water:
+        bow = listing.body_of_water
+        parts.append(f"{bow} — {listing.water_frontage_ft} ft frontage" if listing.water_frontage_ft else bow)
     if listing.water_features:
         parts.append(listing.water_features)
     if listing.pool:
@@ -185,6 +204,30 @@ def water_features_display(listing):
     if listing.sewer_type:
         parts.append(f"Sewer: {listing.sewer_type}")
     return "; ".join(parts)
+
+
+def tax_uncap_note(listing):
+    """Michigan-specific disclosure: a property's 'taxable value' (what
+    the shown property tax is actually based on) is capped year-over-year
+    for the *current* owner, but uncaps to match the State Equalized
+    Value (SEV) the year after a sale/transfer of ownership -- meaning a
+    buyer's real first-year tax bill can end up meaningfully higher than
+    the seller's shown property tax. Seen concretely on 2 of 3 real
+    MichRIC samples this was tested against: SEV 41% and 70% above the
+    current taxable value, respectively. Deliberately does NOT compute or
+    promise a specific new-tax-bill number -- that's a call for the
+    buyer's agent or the local assessor, not this app -- and only fires
+    when there's a real gap (>2%, to ignore rounding noise), not on every
+    MI listing."""
+    tv_raw = (listing.tax_taxable_value or "").replace(",", "").replace("$", "")
+    sev_raw = (listing.tax_sev or "").replace(",", "").replace("$", "")
+    try:
+        tv, sev = float(tv_raw), float(sev_raw)
+    except ValueError:
+        return ""
+    if not tv or not sev or sev <= tv * 1.02:
+        return ""
+    return f"MI taxable value may uncap to match SEV (${sev:,.0f}) after sale — ask your agent for an estimated post-sale tax figure."
 
 
 def remarks_size_class(remarks: str):
@@ -319,6 +362,7 @@ def render_flyer(
         basement_display=basement_display(listing),
         assessment_line_display=assessment_line_display(listing),
         water_features_display=water_features_display(listing),
+        tax_uncap_note=tax_uncap_note(listing),
         is_condo_like=(listing.ownership or "").strip().lower() in ("condo", "co-op"),
         prepared_date=datetime.date.today().strftime("%B %-d, %Y"),
     )

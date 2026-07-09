@@ -381,7 +381,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
   </div>
   <div class="hero-info">
     <h1 class="serif">{{ l.street_address }}</h1>
-    <div class="city">{{ l.city_state_zip }}{% if l.ownership %} &nbsp;&middot;&nbsp; {{ l.ownership }}{% endif %}</div>
+    <div class="city">{{ l.city_state_zip }}{% if l.ownership %} &nbsp;&middot;&nbsp; {{ l.ownership }}{% endif %}{% if l.county %} &nbsp;&middot;&nbsp; {{ l.county }} County{% endif %}</div>
     {% if market_time_display %}<div class="market-line">{{ market_time_display }}</div>{% endif %}
     <div class="price-row">
       <div class="amt">{{ l.list_price }}</div>
@@ -477,6 +477,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
       {% if l.tax_amount %}<div class="c-line"><b>{{ l.tax_amount }}</b>{% if l.tax_year %} &nbsp;({{ l.tax_year }}){% endif %}</div>{% endif %}
       {% if mult_pins_display %}<div class="c-line">Multiple PINs: {{ mult_pins_display }}</div>{% endif %}
       {% if l.tax_exemptions %}<div class="c-line">Exemptions: {{ l.tax_exemptions }}</div>{% endif %}
+      {% if tax_uncap_note %}<div class="c-line" style="font-style:italic;color:var(--granite);">{{ tax_uncap_note }}</div>{% endif %}
     </div>
     <div class="card">
       <div class="c-title">Schools</div>

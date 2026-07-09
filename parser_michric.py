@@ -301,6 +301,81 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     if m and m.group(1) == "Yes":
         listing.basement = "Yes"
 
+    # --- Buyer-critical facts that were previously dropped entirely --------
+    # Found by re-reading real MichRIC sheets end-to-end as a buyer would,
+    # independent of what the parser already captured -- these are all
+    # plain same-line label:value pairs (no column-wrap risk) so a direct
+    # regex against the linear text is safe, same as Year Built/Stories/etc.
+    # above.
+    m = re.search(r"Days on Market:\s*(\d+)", text)
+    if m:
+        listing.dom_total = m.group(1)
+
+    m = re.search(r"Waterfront:\s*(Yes|No)", text)
+    if m:
+        listing.waterfront = m.group(1)
+
+    m = re.search(r"Water Access Y/N:\s*(Yes|No)", text)
+    if m:
+        listing.water_access = m.group(1)
+
+    m = re.search(r"Water Frontage:\s*(\d+)", text)
+    if m:
+        listing.water_frontage_ft = m.group(1)
+
+    m = re.search(r"New Construction:\s*(Yes|No)", text)
+    if m:
+        listing.new_construction = m.group(1)
+
+    m = re.search(r"County:\s*([A-Za-z]+)", text)
+    if m:
+        listing.county = m.group(1)
+
+    m = re.search(r"Taxable Value:\s*([\d,]+)", text)
+    if m:
+        listing.tax_taxable_value = m.group(1)
+
+    m = re.search(r"\bSEV:\s*([\d,]+)", text)
+    if m:
+        listing.tax_sev = m.group(1)
+
+    # --- Architectural Style / Body of Water (wrap-prone header fields) ----
+    # Both live in the same 3-up header facts grid as everything above, but
+    # unlike those, their *values* can land on a different visual row than
+    # their label when the value is long enough to wrap ("Contemporary"
+    # wraps to the next row; "Ranch" doesn't) -- the exact same failure
+    # mode the Property Features grid has, just one section higher up the
+    # page. A plain regex on linear page text would silently interleave
+    # neighboring columns' content in between label and wrapped value, so
+    # this isolates each field's own column first (word x-position, not
+    # reading order) the same way the Property Features grid does, then
+    # runs the normal _grab() against that column's own flattened text.
+    # Column boundaries (0-364 / 364-468 / 468-page_width) were measured
+    # directly against real sample sheets. Column 2's real start position
+    # varies more than the Property Features grid's does -- seen as low as
+    # 368.8pt on one sample vs. ~371.5pt on others -- and a wrapped
+    # continuation line in column 1 (e.g. a long Association Info. value)
+    # can push a word out to 359.7pt, so the col1/col2 boundary has to
+    # thread a narrower needle than elsewhere in this file: 364 sits with
+    # ~4-5pt to spare on both sides, confirmed against every sample sheet
+    # on hand. An earlier version of this boundary (369) was too close to
+    # that 368.8pt real column start and silently misclassified "Total
+    # Rooms AG:" into column 1, corrupting Architectural Style's value on
+    # a real listing ("Other Total" instead of "Other").
+    style_top = _find_word_top(words, "Architectural")
+    directions_top = next((w["top"] for w in words if w["text"].startswith("Directions:")), None)
+    if style_top is not None and directions_top is not None:
+        header_col1 = re.sub(r"\s*\n\s*", " ", _column_text(words, 0, 364, style_top - 1, directions_top - 1))
+        header_col3 = re.sub(r"\s*\n\s*", " ", _column_text(words, 468, page_width, style_top - 1, directions_top - 1))
+
+        style = _grab(header_col1, "Architectural Style", ["Stories:", "\n"])
+        if style and not _is_nullish(style):
+            listing.architectural_style = style
+
+        bow = _grab(header_col3, "Body of Water", ["Statewide Lakes", "\n"])
+        if bow and not _is_nullish(bow):
+            listing.body_of_water = bow
+
     # Bed/bath/room-count table ("Bedrooms 3 1 0 2 6") -- the level columns
     # (Upper/Main/Lower/Basement) that are all-zero get dropped from the row
     # entirely rather than printed as 0, so the column count varies listing
@@ -534,6 +609,15 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             if lot_desc:
                 listing.exterior_features = (
                     f"{listing.exterior_features}; Lot: {lot_desc}" if listing.exterior_features else f"Lot: {lot_desc}"
+                )
+            # "Security Features:" was already a recognized stop-boundary
+            # for lot_desc above (so it wouldn't get swallowed into Lot
+            # Description), but -- same pattern as Pool/Water/Sewer above
+            # -- was never actually captured anywhere itself.
+            security = _grab(add2_flat, "Security Features", ["Mineral Rights:", "Zoning:", "$"])
+            if security and not _is_nullish(security):
+                listing.interior_features = (
+                    f"{listing.interior_features}; Security: {security}" if listing.interior_features else f"Security: {security}"
                 )
 
     # --- Room dimensions (same fixed 3-up grid) ------------------------------

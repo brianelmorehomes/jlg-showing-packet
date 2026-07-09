@@ -113,13 +113,19 @@ def money(s):
 class Listing:
     mls_number: str = ""
     property_type: str = ""
+    architectural_style: str = ""  # e.g. MichRIC "Contemporary"/"Ranch" --
+                                    # distinct from and more specific than
+                                    # property_type ("Single Family
+                                    # Residence")
     status: str = ""
     list_date: str = ""
     dom_list_side: str = ""
     dom_total: str = ""
+    new_construction: str = ""  # Yes/No -- only worth a badge when "Yes"
     list_price: str = ""
     address_line1: str = ""
     city: str = ""
+    county: str = ""
     state: str = ""
     zip_code: str = ""
     directions: str = ""
@@ -157,6 +163,14 @@ class Listing:
     tax_year: str = ""
     tax_exemptions: str = ""
     mult_pins: str = ""
+    tax_taxable_value: str = ""  # MichRIC "Taxable Value:" -- what the
+                                  # shown tax_amount is actually based on
+                                  # for the *current* owner
+    tax_sev: str = ""  # MichRIC "SEV:" (State Equalized Value) -- MI
+                        # taxable value uncaps to match this after a sale,
+                        # so a real gap here means a buyer's actual future
+                        # tax bill will likely be meaningfully higher than
+                        # tax_amount above. See render.py's tax_uncap_note().
 
     elementary: str = ""
     junior_high: str = ""
@@ -186,6 +200,18 @@ class Listing:
                              # utilities blob and risking getting buried.
     sewer_type: str = ""  # e.g. MichRIC "Sewer:" -- Public Sewer/Septic
                            # Tank. Same reasoning as water_source.
+    waterfront: str = ""  # MichRIC "Waterfront:" -- Yes/No. A property
+                           # can have water_features (deeded/public access)
+                           # without being Waterfront itself -- this is the
+                           # one unambiguous flag for that distinction.
+    water_access: str = ""  # MichRIC "Water Access Y/N:" -- captured for
+                             # completeness but not necessarily rendered;
+                             # seen disagreeing with the presence of real
+                             # water_features text on at least one real
+                             # sample, so treat as informational only.
+    body_of_water: str = ""  # e.g. "Paw Paw Lake" -- MichRIC "Body of
+                              # Water:"
+    water_frontage_ft: str = ""  # MichRIC "Water Frontage:" (feet)
     heating: str = ""
     cooling: str = ""
     kitchen_features: str = ""
