@@ -110,6 +110,9 @@ PAGE = """
       <p class="hint">or click to browse &mdash; select every property on today's showing list at once</p>
       <input type="file" id="fileInput" accept="application/pdf" multiple>
     </div>
+    <div style="font-size:11.5px;color:#888;margin-top:8px;">
+      MichRIC (Michigan) listings: export the <strong>NEW MichRIC Full Detail Report</strong> format &mdash; the one with a "Property Features" grid (Exterior / Interior / Construction-Utilities columns) and a "Tax and Legal" section. The older single-column report layout isn't supported and will come back mostly blank.
+    </div>
     <div id="status"></div>
     <div id="errors"></div>
   </div>
