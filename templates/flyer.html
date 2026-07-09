@@ -149,6 +149,15 @@ h1, h2, h3 { margin: 0; padding: 0; }
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+.hero-info .price-note {
+  display: block;
+  margin-top: 3px;
+  font-size: 7.6pt;
+  font-weight: 700;
+  color: var(--broker-blue);
+  text-transform: none;
+  letter-spacing: 0;
+}
 
 /* ---------- Quick facts strip ---------- */
 .facts-strip {
@@ -385,7 +394,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
     {% if market_time_display %}<div class="market-line">{{ market_time_display }}</div>{% endif %}
     <div class="price-row">
       <div class="amt">{{ l.list_price }}</div>
-      <div class="type">{{ friendly_type }}</div>
+      <div class="type">{{ friendly_type }}{% if price_change_note %}<span class="price-note">{{ price_change_note }}</span>{% endif %}</div>
     </div>
   </div>
 </div>
@@ -478,6 +487,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
       {% if mult_pins_display %}<div class="c-line">Multiple PINs: {{ mult_pins_display }}</div>{% endif %}
       {% if l.tax_exemptions %}<div class="c-line">Exemptions: {{ l.tax_exemptions }}</div>{% endif %}
       {% if tax_uncap_note %}<div class="c-line" style="font-style:italic;color:var(--granite);">{{ tax_uncap_note }}</div>{% endif %}
+      {% if tax_exemption_note %}<div class="c-line" style="font-style:italic;color:var(--granite);">{{ tax_exemption_note }}</div>{% endif %}
     </div>
     <div class="card">
       <div class="c-title">Schools</div>

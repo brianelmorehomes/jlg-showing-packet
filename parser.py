@@ -105,6 +105,22 @@ def money(s):
     return s
 
 
+# MRED fills in several fields with a literal "No"/"None" rather than
+# leaving them blank when there's genuinely nothing to report (Special
+# Assessments, Tax Exemptions), so a plain truthiness check isn't enough to
+# keep MLS boilerplate off the buyer-facing flyer -- confirmed shipping on
+# real output as "Special: No" / "Exemptions: None" before this was added.
+# Mirrors parser_michric.py's _is_nullish(), with "no" added since MRED
+# specifically uses it as a null placeholder on these boolean-style fields
+# (unlike MichRIC's set, which is used for free-text label:value fields
+# where "No" can be a legitimate answer worth keeping).
+_NULLISH = {"none", "no", "0", "n/a", "na", "-"}
+
+
+def _is_nullish(val):
+    return (val or "").strip().lower() in _NULLISH
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -123,12 +139,25 @@ class Listing:
     dom_total: str = ""
     new_construction: str = ""  # Yes/No -- only worth a badge when "Yes"
     list_price: str = ""
+    orig_list_price: str = ""  # MRED "Orig List Price:" -- differs from
+                                # list_price only after a price change, in
+                                # which case it's a real negotiation signal
+                                # worth surfacing (see render.py's
+                                # price_change_note()).
     address_line1: str = ""
     city: str = ""
     county: str = ""
     state: str = ""
     zip_code: str = ""
     directions: str = ""
+    curr_leased: str = ""  # MRED "Curr. Leased:" -- Yes means the property
+                            # is currently tenant-occupied, which affects a
+                            # buyer's move-in timeline. See render.py's
+                            # market_time_display().
+    exposure: str = ""  # MRED "Exposure:" -- unit-facing direction(s), e.g.
+                         # "N (North), W (West)". Condo-relevant (affects
+                         # natural light expectations); folded into
+                         # interior_features rather than given its own card.
 
     bedrooms: str = ""
     bathrooms_full: str = ""
@@ -142,6 +171,13 @@ class Listing:
     parking_type: str = ""
     parking_spaces: str = ""
     garage_details: str = ""
+    garage_ownership: str = ""  # MRED "Garage Ownership:" -- e.g. "Deeded
+                                 # Sold Separately ($25,000)". A financially
+                                 # significant detail that parking_incl_in_
+                                 # price alone doesn't convey (it only says
+                                 # whether parking is included, not what it
+                                 # costs if it isn't). See render.py's
+                                 # parking_note().
     parking_incl_in_price: str = ""
     lot_size: str = ""
 
@@ -290,6 +326,7 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     listing.list_price = money(_grab(page1_text, "List Price", ["Orig List Price", "\n"]))
     listing.status = _grab(page1_text, "Status", ["List Date"])
     listing.list_date = _grab(page1_text, "List Date", ["Orig List Price"])
+    listing.orig_list_price = money(_grab(page1_text, "Orig List Price", ["\n"]))
 
     # "Mkt. Time (Lst./Tot.)" is MRED's days-on-market field: the first
     # number is time on the *current* listing period, the second is
@@ -317,9 +354,25 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
 
     # --- Core facts ----------------------------------------------------------
     listing.year_built = _grab(page1_text, "Year Built", ["Blt Before 78"])
+    # Curr. Leased "No" is real, meaningful data (not a null placeholder --
+    # unlike Special Assessments/Tax Exmps above), so this is captured as-is
+    # rather than run through _is_nullish(); market_time_display() in
+    # render.py only surfaces it when it's actually "Yes" anyway.
+    listing.curr_leased = _grab(page1_text, "Curr. Leased", ["\n"])
     listing.ownership = _grab(page1_text, "Ownership", ["Subdivision"])
     listing.rooms_total = _grab(page1_text, "Rooms", ["Bathrooms"])
     listing.bedrooms = _grab(page1_text, "Bedrooms", ["Master Bath"])
+
+    # County -- already have the display/template plumbing for this from the
+    # MichRIC work (city-line "County" suffix), just never wired up for MRED.
+    listing.county = _grab(full_text, "County", ["\n"])
+
+    # Waterfront -- same story: field/display machinery already exists from
+    # MichRIC (see water_features_display() in render.py), just never
+    # captured for MRED. "No" is real data here (not a null placeholder),
+    # so it's kept as-is; water_features_display() already handles not
+    # showing a bare "Not Waterfront" on every ordinary city listing.
+    listing.waterfront = _grab(full_text, "Waterfront", ["\n"])
 
     # "Dimensions" is MRED's lot-size field. For most condos it just says
     # COMMON (shared lot), but rowhome-style/low-rise condos and any
@@ -493,9 +546,11 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         if m:
             listing.assessment_amount = money("$" + m.group(1))
             listing.tax_amount = money("$" + m.group(2))
-        listing.special_assessments = _grab(full_text, "Special Assessments", ["Tax Year", "\n"])
+        special_assessments = _grab(full_text, "Special Assessments", ["Tax Year", "\n"])
+        listing.special_assessments = "" if _is_nullish(special_assessments) else special_assessments
         listing.tax_year = _grab(full_text, "Tax Year", ["Flood Zone", "\n"])
-        listing.tax_exemptions = _grab(full_text, "Tax Exmps", ["Appx SF", "Main +", "\n"])
+        tax_exemptions = _grab(full_text, "Tax Exmps", ["Appx SF", "Main +", "\n"])
+        listing.tax_exemptions = "" if _is_nullish(tax_exemptions) else tax_exemptions
         listing.mult_pins = _grab(full_text, "Mult PINs", ["Habitable", "\n"])
     else:
         # Condo/attached layout: School Data / Assessments / Tax / Pet Info.
@@ -552,7 +607,8 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
 
         listing.assessment_amount = money("$" + _first_num(_grab(assess_col, "Amount", ["\n"])))
         listing.assessment_frequency = _grab(assess_col, "Frequency", ["\n"])
-        listing.special_assessments = _grab(assess_col, "Special Assessments", ["\n"])
+        special_assessments = _grab(assess_col, "Special Assessments", ["\n"])
+        listing.special_assessments = "" if _is_nullish(special_assessments) else special_assessments
 
         listing.tax_amount = money("$" + _first_num(_grab(tax_col, "Amount", ["\n"])))
         listing.tax_year = _grab(tax_col, "Tax Year", ["\n"])
@@ -563,7 +619,8 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         # column text, which would truncate at the wrap.
         tax_col_flat = re.sub(r"\s*\n\s*", " ", tax_col)
         listing.mult_pins = _grab(tax_col_flat, "Mult PINs", ["Tax Year", "$"])
-        listing.tax_exemptions = _grab(tax_col_flat, "Tax Exmps", ["Coop Tax Deduction", "$"])
+        tax_exemptions = _grab(tax_col_flat, "Tax Exmps", ["Coop Tax Deduction", "$"])
+        listing.tax_exemptions = "" if _is_nullish(tax_exemptions) else tax_exemptions
 
         listing.elementary = _grab(school_col, "Elementary", ["\n"])
         listing.junior_high = _grab(school_col, "Junior High", ["\n"])
@@ -647,7 +704,7 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     # that can plausibly appear in this grid, so a grab always stops at the
     # next real field even when its own "preferred" neighbor isn't reachable.
     FEAT_LABELS = [
-        "Age:", "Type:", "Style:", "Exterior:",
+        "Age:", "Type:", "Exposure:", "Style:", "Exterior:",
         "Heating:", "Air Cond:", "Kitchen:", "Appliances:", "Dining:", "Attic:",
         "Basement Details:", "Bath Amn:", "Fireplace Details:", "Fireplace Location:",
         "Electricity:", "Equipment:", "Additional Rooms:", "Other Structures:",
@@ -668,6 +725,19 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
 
     listing.interior_features = _grab(full_text, "Interior Property Features", ["Exterior Property Features"])
     listing.exterior_features = _grab(full_text, "Exterior Property Features", ["Age:"])
+
+    # Exposure (unit-facing direction, e.g. "N (North), W (West)") --
+    # condo-relevant, affects natural light expectations. Not significant
+    # enough to warrant its own card, so folded into Interior Features
+    # (mirrors parser_michric.py's pattern of folding Security Features in
+    # rather than adding a one-off card for every small extra fact).
+    exposure = _grab_feat(feat_col1, "Exposure")
+    if exposure and not _is_nullish(exposure):
+        listing.exposure = exposure
+        listing.interior_features = (
+            f"{listing.interior_features}; Exposure: {exposure}" if listing.interior_features else f"Exposure: {exposure}"
+        )
+
     listing.heating = _grab_feat(feat_col1, "Heating")
     listing.cooling = _grab_feat(feat_col1, "Air Cond")
     listing.kitchen_features = _grab_feat(feat_col1, "Kitchen")
@@ -679,11 +749,26 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     m = re.search(r"\bParking:(Garage|None|Space/s|Assigned Spaces|Off Street|Driveway|N/A)", page1_text)
     listing.parking_type = m.group(1) if m else ""
     listing.garage_details = _grab_feat(feat_col2, "Garage Details")
+    # "Garage Ownership:" was already a recognized FEAT_LABELS stop-word
+    # (protecting neighboring grabs' boundaries) but was never itself
+    # grabbed into a field -- the same "recognized but dropped" bug pattern
+    # found repeatedly in the MichRIC parser. This is the one case where it
+    # actually matters: a value like "Deeded Sold Separately ($25,000)" is a
+    # real, buyer-relevant cost that parking_incl_in_price alone doesn't
+    # convey. See render.py's parking_note().
+    garage_ownership = _grab_feat(feat_col2, "Garage Ownership")
+    if garage_ownership and not _is_nullish(garage_ownership):
+        listing.garage_ownership = garage_ownership
 
     # Number of stories in the home itself (distinct from a condo building's
     # "# Stories:", which is about the building, not the unit) -- shown as
-    # its own quick fact for detached/townhome listings.
-    type_val = _grab(feat_col1, "Type", ["Style:"])
+    # its own quick fact for detached/townhome listings. Bounded by the full
+    # FEAT_LABELS list (not just "Style:") so it can't run on and swallow
+    # "Exposure:" and everything after it when a listing has no Style field
+    # at all -- it's not displayed directly (only stories is pulled from
+    # it), but a follow-on regex search against an over-long string is
+    # needless fragility worth closing off while touching this code.
+    type_val = _grab_feat(feat_col1, "Type", ["Style:"])
     m = re.search(r"(\d+)\+?\s*Stor(?:y|ies)", type_val)
     if m:
         listing.stories = m.group(1)

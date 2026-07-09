@@ -102,13 +102,21 @@ def lot_size_display(listing):
 def parking_note(listing):
     """A short, explicit callout for whether parking is included in the list
     price -- this is a frequent point of buyer confusion, so it's worth
-    surfacing plainly rather than leaving it buried in the raw MLS fields."""
+    surfacing plainly rather than leaving it buried in the raw MLS fields.
+    Also surfaces the actual cost when MRED's Garage Ownership field calls
+    out a separate purchase price (e.g. "Deeded Sold Separately
+    ($25,000)") -- otherwise a buyer only sees "Not included in price"
+    with no idea what that add-on would actually cost them."""
     incl = (listing.parking_incl_in_price or "").strip().lower()
+    parts = []
     if incl == "no":
-        return "Not included in price"
-    if incl == "yes":
-        return "Included in price"
-    return ""
+        parts.append("Not included in price")
+    elif incl == "yes":
+        parts.append("Included in price")
+    ownership = (listing.garage_ownership or "").strip()
+    if "$" in ownership:
+        parts.append(ownership)
+    return " — ".join(parts)
 
 
 def market_time_display(listing):
@@ -128,6 +136,11 @@ def market_time_display(listing):
         else:
             unit = "Day" if listing.dom_total == "1" else "Days"
             parts.append(f"{listing.dom_total} {unit} on Market")
+    # Tenant-occupied is a real move-in-timeline fact a buyer needs to know
+    # up front (MRED "Curr. Leased:") -- worth a spot in this same header
+    # line rather than a separate card, since it's a single short flag.
+    if (listing.curr_leased or "").strip().lower() == "yes":
+        parts.append("Tenant-Occupied")
     return " · ".join(parts)
 
 
@@ -188,9 +201,20 @@ def water_features_display(listing):
     much frontage, then the descriptive recreational amenities text, then
     the practical pool/water-source/sewer facts. MichRIC listings carry
     all of these as separate fields; called out together here rather than
-    scattered across a generic exterior-features or utilities blob."""
+    scattered across a generic exterior-features or utilities blob.
+
+    Now also populated for MRED, where "Waterfront:No" is the overwhelming
+    majority case (ordinary city listings) -- showing a bare "Not
+    Waterfront" card on every single one of those would be noise, not
+    signal, so the negative flag only surfaces here when there's other
+    water-related content on the card to give it context; a bare "Yes"
+    always surfaces on its own since that's genuinely notable either way."""
     parts = []
-    if listing.waterfront:
+    other_water_info = bool(
+        listing.body_of_water or listing.water_features or listing.pool
+        or listing.water_source or listing.sewer_type
+    )
+    if listing.waterfront and (listing.waterfront.strip().lower() == "yes" or other_water_info):
         parts.append("Waterfront" if listing.waterfront.strip().lower() == "yes" else "Not Waterfront")
     if listing.body_of_water:
         bow = listing.body_of_water
@@ -228,6 +252,48 @@ def tax_uncap_note(listing):
     if not tv or not sev or sev <= tv * 1.02:
         return ""
     return f"MI taxable value may uncap to match SEV (${sev:,.0f}) after sale — ask your agent for an estimated post-sale tax figure."
+
+
+def tax_exemption_note(listing):
+    """Illinois/Cook County-specific disclosure, parallel in spirit to
+    tax_uncap_note() above: a shown property tax figure (tax_amount) is
+    computed *after* whatever exemptions the current owner has on file
+    (Homeowner, Senior, Senior Freeze, etc. -- MRED's "Tax Exmps:" field),
+    and those don't automatically carry over to a new owner. An owner-
+    occupant buyer can typically apply for their own Homeowner Exemption,
+    but it doesn't show up immediately, and a Senior/Senior Freeze
+    exemption won't transfer at all unless the buyer separately qualifies
+    -- so the real first-year bill can run higher than what's shown here.
+    Only fires when tax_exemptions actually has a value (nullish
+    placeholders like "None" are already filtered out during parsing)."""
+    exemptions = (listing.tax_exemptions or "").strip()
+    if not exemptions:
+        return ""
+    return (
+        f"Shown tax reflects the current owner's {exemptions} exemption(s) — "
+        "these don't automatically transfer to a new owner, so your first-year "
+        "bill may be higher until you establish your own exemptions."
+    )
+
+
+def price_change_note(listing):
+    """Surface a price change (almost always a reduction) as an explicit
+    negotiation signal -- MRED carries both the original and current list
+    price, but only the current one shows up anywhere else on the flyer,
+    so a buyer has no way to know a price drop even happened unless this
+    is called out. Only fires when the two prices actually differ."""
+    orig_raw = (listing.orig_list_price or "").replace("$", "").replace(",", "").strip()
+    cur_raw = (listing.list_price or "").replace("$", "").replace(",", "").strip()
+    try:
+        orig_v, cur_v = float(orig_raw), float(cur_raw)
+    except ValueError:
+        return ""
+    if not orig_v or not cur_v or orig_v == cur_v:
+        return ""
+    if cur_v < orig_v:
+        pct = (orig_v - cur_v) / orig_v * 100
+        return f"Reduced from {listing.orig_list_price} ({pct:.0f}% off original)"
+    return f"Increased from {listing.orig_list_price}"
 
 
 def remarks_size_class(remarks: str):
@@ -363,6 +429,8 @@ def render_flyer(
         assessment_line_display=assessment_line_display(listing),
         water_features_display=water_features_display(listing),
         tax_uncap_note=tax_uncap_note(listing),
+        tax_exemption_note=tax_exemption_note(listing),
+        price_change_note=price_change_note(listing),
         is_condo_like=(listing.ownership or "").strip().lower() in ("condo", "co-op"),
         prepared_date=datetime.date.today().strftime("%B %-d, %Y"),
     )
