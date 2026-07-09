@@ -171,6 +171,10 @@ class Listing:
 
     interior_features: str = ""
     exterior_features: str = ""
+    water_features: str = ""  # e.g. MichRIC "Water Fea. Amenities" -- kept
+                               # separate from exterior_features so it can
+                               # get its own prominent card on waterfront
+                               # listings instead of being buried
     heating: str = ""
     cooling: str = ""
     kitchen_features: str = ""

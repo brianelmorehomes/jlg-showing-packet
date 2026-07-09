@@ -48,14 +48,26 @@ from parser import Listing, money, _grab, _column_text
 # it: column values consistently start ~186pt and ~372pt right of the
 # left margin). Kept relative rather than absolute so a slightly
 # different left margin (e.g. a different print/export path) still
-# lines up. The boundary itself is placed mid-gap rather than exactly at
-# that start position -- floating-point x0 values from pdfplumber can
-# land a hair below the nominal column start (observed: a word's real
-# x0 landing ~0.000008pt under a boundary computed as exactly
+# lines up. The boundary itself is placed short of that start position
+# rather than exactly at it -- floating-point x0 values from pdfplumber
+# can land a hair below the nominal column start (observed: a word's
+# real x0 landing ~0.000008pt under a boundary computed as exactly
 # left_margin+186), which is enough to misclassify it into the previous
-# column at a razor-thin boundary. Sitting further into the gap between
-# columns absorbs that without needing exact-float matching.
-_COL2_OFFSET = 165
+# column at a razor-thin boundary.
+#
+# That said, the gap has to be wide enough in the *other* direction too:
+# an unusually long column-1 value (e.g. MichRIC's standardized "Public
+# Access 1 Mile or Less" water-access phrase) can wrap such that its
+# trailing word's real x0 lands ~13pt short of the true column-2 start
+# (observed: x0=173pt-from-margin, vs. the true ~186pt column-2 start) --
+# with the boundary any tighter than that, this word gets misclassified
+# into column 2 instead, both truncating the column-1 value AND leaving
+# a stray orphan token at the top of column 2's text (seen concretely:
+# an errant "1" landing in front of "Microwave" in a Kitchen Appliances
+# list, from "...Public Access 1" losing its "1"). 180 sits comfortably
+# between that ~173pt worst case and the true ~186pt column-2 start,
+# confirmed against every sample sheet on hand.
+_COL2_OFFSET = 180
 _COL3_OFFSET = 355
 
 _LEVEL_WORDS = ("Main", "Upper", "Lower", "Basement")
@@ -164,10 +176,19 @@ def _grab_feat(coltext, label, stops):
     return _grab(coltext, label, [s for s in stops if s.rstrip(":") != label] + ["$", "\n"])
 
 
+# Every entry needs its trailing colon (matching a real "Label:" boundary)
+# -- a bare word with no colon (e.g. "View" instead of "View:") will also
+# match that word wherever it legitimately appears *inside* another
+# field's own value, silently truncating it right before that word. This
+# bit a real listing: Water Fea. Amenities values ending "...Private
+# Frontage; View" were getting cut to "...Private Frontage;", losing
+# "View" itself, because a bare "View" stop (presumably added to guard
+# some other field ahead of an actual "View:" label seen on a different
+# sheet) matched the word "View" mid-phrase here instead.
 FEAT_STOPS = [
     "Exterior Material:", "Roofing:", "Windows:", "Water Fea. Amenities:",
-    "Fencing:", "Landscape:", "Parking Features:", "Patio and Porch Features:",
-    "Garage Spaces:", "Exterior Features:", "View",
+    "Fencing:", "Landscape:", "Pool:", "Parking Features:", "Patio and Porch Features:",
+    "Garage Spaces:", "Exterior Features:", "View:",
     "Laundry Features:", "Appliances:", "Main Level Primary:", "Total Fireplaces:",
     "Air Conditioning:", "Kitchen Features:", "Flooring:",
     "Heat Source:", "Heat Type:", "Substructure:", "Water Heater:", "Water:",
@@ -388,7 +409,50 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         int_flat = re.sub(r"\s*\n\s*", " ", int_col)
         con_flat = re.sub(r"\s*\n\s*", " ", con_col)
 
-        listing.exterior_features = _grab_feat(ext_flat, "Exterior Material", FEAT_STOPS)
+        # The Exterior Features column carries several independent
+        # label:value fields -- Exterior Material is always present, but
+        # Roofing/Windows/Fencing/Landscape/Pool/the literal "Exterior
+        # Features:" note/Patio and Porch Features are each only present
+        # when the listing agent filled them in (e.g. no "Pool:" line at
+        # all on a listing with no pool). An earlier version of this
+        # parser only ever captured Exterior Material and silently
+        # dropped everything else in this column -- including real,
+        # buyer-relevant details like an in-ground pool -- so each field
+        # is grabbed independently here and skipped when absent/nullish
+        # rather than assumed present.
+        ext_material = _grab_feat(ext_flat, "Exterior Material", FEAT_STOPS)
+        roofing = _grab_feat(ext_flat, "Roofing", FEAT_STOPS)
+        windows = _grab_feat(ext_flat, "Windows", FEAT_STOPS)
+        fencing = _grab_feat(ext_flat, "Fencing", FEAT_STOPS)
+        landscape = _grab_feat(ext_flat, "Landscape", FEAT_STOPS)
+        pool = _grab_feat(ext_flat, "Pool", FEAT_STOPS)
+        ext_note = _grab_feat(ext_flat, "Exterior Features", FEAT_STOPS)
+        patio_porch = _grab_feat(ext_flat, "Patio and Porch Features", FEAT_STOPS)
+
+        ext_parts = [ext_material] if ext_material and not _is_nullish(ext_material) else []
+        if roofing and not _is_nullish(roofing):
+            ext_parts.append(f"Roof: {roofing}")
+        if windows and not _is_nullish(windows):
+            ext_parts.append(f"Windows: {windows}")
+        if fencing and not _is_nullish(fencing):
+            ext_parts.append(f"Fencing: {fencing}")
+        if landscape and not _is_nullish(landscape):
+            ext_parts.append(f"Landscape: {landscape}")
+        if pool and not _is_nullish(pool):
+            ext_parts.append(f"Pool: {pool}")
+        if ext_note and not _is_nullish(ext_note):
+            ext_parts.append(ext_note)
+        if patio_porch and not _is_nullish(patio_porch):
+            ext_parts.append(f"Patio/Porch: {patio_porch}")
+        listing.exterior_features = "; ".join(ext_parts)
+
+        # Water access/features are a major selling point on lakefront
+        # listings specifically -- kept as their own field (water_features
+        # on Listing) with a dedicated card in flyer.html rather than
+        # buried inside the general exterior-features blob above.
+        water_feat = _grab_feat(ext_flat, "Water Fea. Amenities", FEAT_STOPS)
+        if water_feat and not _is_nullish(water_feat):
+            listing.water_features = water_feat
 
         # The flyer's quick-fact strip has room for a short category
         # ("Attached Garage"), not the full semicolon-separated features
