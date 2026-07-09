@@ -457,15 +457,31 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     # page 2 instead of page 1 -- so anchor words are searched across every
     # page rather than assuming a fixed page index.
     pages_words = []
+    pages_heights = []
     page_width = 612
     left_margin = 14
     try:
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             pages_words = [p.extract_words() for p in pdf.pages]
+            pages_heights = [p.height for p in pdf.pages]
             if pdf.pages:
                 page_width = pdf.pages[0].width
     except Exception:
         pass
+
+    def _text_spanning_pages(start_pi, start_top, end_pi, end_top, x_min, x_max):
+        """Like _column_text, but for a block whose bottom boundary lands on
+        a later page than its top boundary -- a longer listing (bigger
+        remarks/room table) can push the trailing anchor word that would
+        normally close out a section onto the next page. Reconstructs the
+        column text as if the pages were stitched into one tall page."""
+        if start_pi == end_pi:
+            return _column_text(pages_words[start_pi], x_min, x_max, start_top, end_top)
+        parts = [_column_text(pages_words[start_pi], x_min, x_max, start_top, pages_heights[start_pi])]
+        for pi in range(start_pi + 1, end_pi):
+            parts.append(_column_text(pages_words[pi], x_min, x_max, 0, pages_heights[pi]))
+        parts.append(_column_text(pages_words[end_pi], x_min, x_max, 0, end_top))
+        return "\n".join(p for p in parts if p)
     all_words_flat = [w for words in pages_words for w in words]
     if all_words_flat:
         # The page's actual left margin varies by export source (native MRED
@@ -498,6 +514,24 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             None,
         )
         return w["top"] if w else None
+
+    def _find_after(start_pi, start_top, text, x0_max=None):
+        """Find a closing anchor word starting on `start_pi` (below
+        `start_top`) and, if not there, continuing onto later pages. A
+        content-heavy listing can push a section's closing anchor (e.g. the
+        'Broker'/'Copyright' line that ends the feature grid) onto the next
+        page instead of leaving it on the same page as the section's
+        opening anchor, which a same-page-only search would miss entirely,
+        silently blanking every field that section holds. Returns
+        (page_index, top) or None."""
+        top = _find_on(pages_words[start_pi], text, x0_max, top_min=start_top)
+        if top is not None:
+            return start_pi, top
+        for pi in range(start_pi + 1, len(pages_words)):
+            top = _find_on(pages_words[pi], text, x0_max)
+            if top is not None:
+                return pi, top
+        return None
 
     def _find_phrase(text1, text2, max_gap=45, top_tol=3, min_top=None):
         """First (page_index, words, top, x0) of `text1` immediately
@@ -683,30 +717,34 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             # the fuller "Agent" report exports); fall back to the standard
             # MRED copyright disclaimer line, which every export flavor
             # seems to carry, for the shorter "Customer"-style exports that
-            # omit broker remarks entirely. Both are looked up on the same
-            # page as the grid itself, not just the first page they appear
-            # on anywhere in the document (the copyright line repeats on
-            # every page).
-            bottom_top = _find_on(words, "Broker", margin_cutoff) or _find_on(words, "Copyright", margin_cutoff)
-            if bottom_top is not None:
+            # omit broker remarks entirely. A content-heavy listing (long
+            # remarks, big room table) can push this closing anchor onto
+            # the page *after* the grid itself, so the search continues
+            # forward across pages rather than assuming it's always on the
+            # grid's own page -- a same-page-only search would come back
+            # empty and silently blank every field in this grid.
+            bottom_hit = _find_after(gi, grid_top, "Broker", margin_cutoff) or _find_after(gi, grid_top, "Copyright", margin_cutoff)
+            if bottom_hit is not None:
+                bi, bottom_top = bottom_hit
                 top, bottom = grid_top - 2, bottom_top - 2
                 # Flatten to single-line-per-column text: every field we pull
                 # out of this grid is a short label:value pair, and MRED
                 # wraps long values (e.g. "Garage Door Opener(s), Heated,
                 # Tandem") onto a second line within the same cell, so
                 # newlines here are just wrapping, not meaningful row breaks.
-                feat_col1 = _degarble(re.sub(r"\s*\n\s*", " ", _column_text(words, 0, 195, top, bottom)))
-                feat_col2 = _degarble(re.sub(r"\s*\n\s*", " ", _column_text(words, 195, 395, top, bottom)))
-                feat_col3 = _degarble(re.sub(r"\s*\n\s*", " ", _column_text(words, 395, page_width, top, bottom)))
+                feat_col1 = _degarble(re.sub(r"\s*\n\s*", " ", _text_spanning_pages(gi, top, bi, bottom, 0, 195)))
+                feat_col2 = _degarble(re.sub(r"\s*\n\s*", " ", _text_spanning_pages(gi, top, bi, bottom, 195, 395)))
+                feat_col3 = _degarble(re.sub(r"\s*\n\s*", " ", _text_spanning_pages(gi, top, bi, bottom, 395, page_width)))
 
         room_hdr_hit = _find("Room", margin_cutoff)
         if room_hdr_hit:
             ri, words, room_hdr_top, _ = room_hdr_hit
-            interior_top = _find_on(words, "Interior", top_min=room_hdr_top)
-            if interior_top is not None:
+            interior_hit = _find_after(ri, room_hdr_top, "Interior")
+            if interior_hit is not None:
+                ii, interior_top = interior_hit
                 top, bottom = room_hdr_top - 2, interior_top - 2
-                rooms_left = _column_text(words, 0, 306, top, bottom)
-                rooms_right = _column_text(words, 306, page_width, top, bottom)
+                rooms_left = _text_spanning_pages(ri, top, ii, bottom, 0, 306)
+                rooms_right = _text_spanning_pages(ri, top, ii, bottom, 306, page_width)
     except Exception:
         pass
 
