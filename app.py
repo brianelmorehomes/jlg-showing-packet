@@ -92,7 +92,6 @@ PAGE = """
   .seq-row input[type=text].time-input {
     width: 110px; padding:7px 9px; border:1px solid #ccc; border-radius:5px; font-size:13px;
   }
-  .seq-row input[type=text].time-input.missing { border-color:#780000; background:#fdf0f0; }
   .seq-row .remove { color:#9a9a9c; cursor:pointer; font-size:12px; padding:0 4px; }
   .seq-row .remove:hover { color:#780000; }
 </style>
@@ -117,7 +116,7 @@ PAGE = """
 
   <div class="card" id="stepSequence">
     <h2>2. Drag into showing order &amp; enter a time for each stop</h2>
-    <div style="font-size:12px;color:#888;margin:-8px 0 14px;">Drag the &#9776; handle to reorder. A time is required for every stop before you can generate the packet.</div>
+    <div style="font-size:12px;color:#888;margin:-8px 0 14px;">Drag the &#9776; handle to reorder. Times are optional &mdash; leave any stop blank and it'll show as "Time TBD" on the packet.</div>
     <div id="seqList"></div>
     <button class="secondary" id="addMoreBtn" type="button">+ Add more listings</button>
   </div>
@@ -287,13 +286,12 @@ function renderSeqList() {
         <div class="addr">${item.address_line1}</div>
         <div class="facts">${item.city_state_zip}${facts ? ' · ' + facts : ''}</div>
       </div>
-      <input type="text" class="time-input${item.time.trim() ? '' : ' missing'}" placeholder="10:00 AM" value="${item.time}">
+      <input type="text" class="time-input" placeholder="10:00 AM (optional)" value="${item.time}">
       <span class="remove" title="Remove">✕</span>
     `;
     const timeInput = row.querySelector('.time-input');
     timeInput.addEventListener('input', e => {
       item.time = e.target.value;
-      timeInput.classList.toggle('missing', !item.time.trim());
     });
     row.querySelector('.remove').addEventListener('click', () => {
       items = items.filter(x => x.id !== item.id);
@@ -307,19 +305,10 @@ function renderSeqList() {
 generateBtn.addEventListener('click', () => {
   if (!items.length) return;
 
-  // Times are core to the whole point of this tool (a showing schedule
-  // without times isn't a schedule) -- rather than silently letting a
-  // blank time slip through, block here, mark exactly which stops are
-  // missing one, and focus the first so it's impossible to miss.
-  const missing = items.filter(i => !i.time.trim());
-  if (missing.length) {
-    renderSeqList();
-    genStatus.textContent = missing.length + ' stop(s) still need a time — see highlighted field(s) above.';
-    genStatus.style.color = '#780000';
-    const firstMissingRow = seqList.querySelector('.seq-row .time-input.missing');
-    if (firstMissingRow) firstMissingRow.focus();
-    return;
-  }
+  // Times are optional -- a stop left blank just renders as "Time TBD"
+  // on the cover page (see cover.html's .sched-time.tbd), so an ordered
+  // list without confirmed times yet is a legitimate, generatable packet
+  // on its own, not an error state to block on.
   genStatus.style.color = '#666';
 
   generateBtn.disabled = true;
