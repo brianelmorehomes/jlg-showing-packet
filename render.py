@@ -54,6 +54,37 @@ STATUS_LABELS = {
 }
 
 
+def is_private_listing(listing):
+    """MRED publishes a genuinely different, leaner "compact" listing
+    sheet for private-network listings -- status codes starting "PRIV"
+    (e.g. "PRIV-ACTV" -- still active/for sale, just not yet broadcast to
+    the full public MLS feed). That compact sheet is missing several
+    field anchors the standard "NEW"/full report relies on (school data,
+    assessment/tax breakdown, the 3-column feature grid, etc.), so these
+    flyers can legitimately have more blank fields than usual. That's not
+    a parsing failure -- it's what MRED actually publishes for a private
+    listing -- but a buyer/agent looking at a sparser-than-usual flyer
+    should know why, hence the badge + disclosure this gates."""
+    return (listing.status or "").upper().startswith("PRIV")
+
+
+def private_listing_note(listing):
+    """Disclosure text shown on private-network listings (see
+    is_private_listing above). Explicit ask from Brian: flag it as
+    PRIVATE since the sheet is incomplete but the property IS actively
+    for sale -- so this leads with "active," not "unavailable," to avoid
+    reading like the listing is off-market."""
+    if not is_private_listing(listing):
+        return ""
+    return (
+        "This listing is active and available for sale, but is currently "
+        "shared on the private MLS network only -- the source listing "
+        "sheet is more limited than a standard listing, so some details "
+        "below may be unavailable until it goes fully active on the "
+        "public market."
+    )
+
+
 def split_remarks(remarks: str):
     """Pull the first sentence out as an italic pull-quote lead-in, keep the
     rest as body copy. Falls back gracefully on odd punctuation."""
@@ -683,7 +714,12 @@ def render_flyer(
         font_dir=FONT_DIR,
         logo_lockup=LOGO_LOCKUP_BW if print_safe_logo else LOGO_LOCKUP,
         photo_path=photo_path,
-        status_label=STATUS_LABELS.get(listing.status, listing.status or "For Sale"),
+        status_label=(
+            "Private Listing" if is_private_listing(listing)
+            else STATUS_LABELS.get(listing.status, listing.status or "For Sale")
+        ),
+        is_private=is_private_listing(listing),
+        private_listing_note=private_listing_note(listing),
         remarks_lead=lead,
         remarks_rest=rest,
         remarks_size_class=size_class,

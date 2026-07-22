@@ -33,6 +33,30 @@ def _grab(text, label, stop_labels):
     return m.group(1).strip(" ,")
 
 
+def _grab_no_prefix(text, label, bad_prefixes, stop_labels):
+    """Like _grab(), but skips any match for `label:` that's immediately
+    preceded by one of `bad_prefixes` -- e.g. label="Ownership",
+    bad_prefixes=["Garage ", "Parking "] matches a standalone "Ownership:"
+    but not "Garage Ownership:"/"Parking Ownership:". _grab()'s plain
+    re.search always returns the FIRST occurrence of "label:" anywhere in
+    the text, which is a real problem when a genuinely different field
+    happens to end in the same word (see the MRED "Ownership:" callers).
+    Each prefix gets its own (?<!...) lookbehind rather than one
+    alternation -- Python's re requires a fixed-width lookbehind, and
+    "Garage " / "Parking " are different lengths, so `(?<!Garage |Parking
+    )` fails to compile at all while chained individual lookbehinds work
+    fine."""
+    prefix_lookbehinds = "".join(f"(?<!{re.escape(p)})" for p in bad_prefixes)
+    pattern = (
+        prefix_lookbehinds + re.escape(label) + r":\s*(.*?)(?="
+        + "|".join(re.escape(s) for s in stop_labels) + r"|\n|$)"
+    )
+    m = re.search(pattern, text)
+    if not m:
+        return ""
+    return m.group(1).strip(" ,")
+
+
 def _first_num(s):
     m = re.search(r"[\d,]+", s or "")
     return m.group(0) if m else ""
@@ -100,6 +124,14 @@ def money(s):
     if not s:
         return ""
     s = s.strip()
+    # A bare "$" with no digits happens when the caller builds this from a
+    # grab that came back empty (e.g. "$" + _first_num("")) -- most often
+    # because the Assessments/Tax grid this value would normally come from
+    # doesn't exist at all on a compact/private-network export. That's
+    # meaningfully different from a real $0, so it's treated the same as
+    # "no value" rather than rendered as a bare, confusing "$".
+    if not re.search(r"\d", s):
+        return ""
     if not s.startswith("$"):
         return s
     return s
@@ -344,6 +376,11 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     listing.list_price = money(_grab(page1_text, "List Price", ["Orig List Price", "\n"]))
     listing.status = _grab(page1_text, "Status", ["List Date"])
     listing.list_date = _grab(page1_text, "List Date", ["Orig List Price"])
+    if not listing.list_date:
+        # Compact/private-network exports (Status starting "PRIV") have no
+        # "List Date:" at all -- "Actv. Date:" (the date this listing went
+        # active on the private network) is the closest equivalent.
+        listing.list_date = _grab(page1_text, "Actv. Date", ["Max List Price", "\n"])
     listing.orig_list_price = money(_grab(page1_text, "Orig List Price", ["\n"]))
 
     # "Mkt. Time (Lst./Tot.)" is MRED's days-on-market field: the first
@@ -377,9 +414,29 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     # rather than run through _is_nullish(); market_time_display() in
     # render.py only surfaces it when it's actually "Yes" anyway.
     listing.curr_leased = _grab(page1_text, "Curr. Leased", ["\n"])
-    listing.ownership = _grab(page1_text, "Ownership", ["Subdivision"])
+    # Negative lookbehind so this only matches a standalone "Ownership:"
+    # label, not "Garage Ownership:"/"Parking Ownership:" -- a plain
+    # re.search for "Ownership:" matches the FIRST occurrence anywhere in
+    # the page, and on the standard full-listing layout that's harmlessly
+    # masked because the real "Ownership:Condo" field happens to appear
+    # earlier in reading order than the garage grid. Compact/private-
+    # network exports (Status starting "PRIV") have no standalone
+    # "Ownership:" field at all, so without the lookbehind this silently
+    # grabs "Fee/Leased Parking Ownership:" off the garage block instead.
+    listing.ownership = _grab_no_prefix(page1_text, "Ownership", ["Garage ", "Parking "], ["Subdivision"])
+    if not listing.ownership:
+        # Compact/private-network exports label this "Type Detached/
+        # Attached:" instead (e.g. "Type Detached/Attached: Condo").
+        listing.ownership = _grab(page1_text, "Type Detached/Attached", ["Basement:", "\n"])
     listing.rooms_total = _grab(page1_text, "Rooms", ["Bathrooms"])
-    listing.bedrooms = _grab(page1_text, "Bedrooms", ["Master Bath"])
+    # "Area:"/"List Price:" added as stops alongside "Master Bath" --
+    # compact/private-network exports pack "Bedrooms: 3 Area: 8006 List
+    # Price: $525,000" onto a single line with no field-separating
+    # newline, and don't have a "Master Bath:" label on this line at all
+    # (they use "Master Bedroom Bath:" instead, much further down), so
+    # without these extra stops the grab runs to the end of that whole
+    # line instead of just the bedroom count.
+    listing.bedrooms = _grab(page1_text, "Bedrooms", ["Master Bath", "Master Bedroom Bath", "Area:"])
 
     # County -- already have the display/template plumbing for this from the
     # MichRIC work (city-line "County" suffix), just never wired up for MRED.
@@ -412,7 +469,12 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     if m:
         listing.unit_floor_level = m.group(1)
 
-    m = re.search(r"Bathrooms(?:\s*\(Full/Half\))?:?\s*(\d+)\s*/\s*(\d+)", page1_text)
+    # Case-insensitive -- compact/private-network exports write this label
+    # lowercase ("Bathrooms (full/half): 2 / 0") where the standard full
+    # listing layout capitalizes it ("Bathrooms\n(Full/Half):\n2/0"); a
+    # case-sensitive \(Full/Half\) silently misses the lowercase variant
+    # and leaves both fields blank.
+    m = re.search(r"Bathrooms(?:\s*\(full/half\))?:?\s*(\d+)\s*/\s*(\d+)", page1_text, re.IGNORECASE)
     if m:
         listing.bathrooms_full, listing.bathrooms_half = m.group(1), m.group(2)
 
@@ -428,7 +490,9 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     if m and m.group(1) != "0":
         listing.fireplaces = m.group(1)
 
-    m = re.search(r"Appx SF:\s*([\d,]+)", page1_text)
+    # "Appx SF:" on the standard full listing layout; compact/private-
+    # network exports use "Approx Sq Ft:" instead.
+    m = re.search(r"Appx SF:\s*([\d,]+)", page1_text) or re.search(r"Approx Sq Ft:\s*([\d,]+)", page1_text)
     if m:
         sf = m.group(1)
         listing.approx_sf = sf if sf not in ("0", "") else ""
@@ -688,6 +752,61 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         # that can appear earlier in this same value.
         listing.pets_allowed = _grab(re.sub(r"\s*\n\s*", " ", pet_col), "Pets Allowed", ["Max Pet Weight", "Pet Weight:", "$"])
 
+        if not header_hit:
+            # Compact/private-network exports have no "School Data"
+            # section at all -- there's no bottom School/Assessments/Tax/
+            # Pet grid to key off here, but Elementary/Junior High/High
+            # School (when the sheet actually has school names, not just
+            # a bare district code) are still simple standalone full-
+            # width lines, worth grabbing directly. A value that's just a
+            # bare district code with no actual school name (e.g. "(299)",
+            # seen on the one real private-listing sample this was built
+            # against) isn't useful to show on its own, so it's filtered
+            # out the same as a genuinely missing value.
+            def _school_name(label):
+                val = _grab(full_text, label, ["\n"])
+                return "" if re.fullmatch(r"\(\d+\)", val) else val
+            listing.elementary = _school_name("Elementary")
+            listing.junior_high = _school_name("Junior High")
+            listing.high_school = _school_name("High School")
+
+            # Pet Information lives in this format's OWN left/right
+            # 2-column header grid (Bedrooms/Bathrooms/Actv. Date/Type/
+            # Pets Allowed/Pet Information on the left; Area/List Price/
+            # .../Basement/Master Bedroom Bath/Approx Sq Ft on the right)
+            # rather than the bottom grid this whole function otherwise
+            # keys off. Its value can wrap onto a second row, so this is
+            # reconstructed by word x-position (the same way every other
+            # wrapped-value column in this file is) rather than a linear-
+            # text regex, which would splice in whatever sits in the
+            # right-hand column on the wrapped row -- seen on the one
+            # real sample this was built against: "Master Bedroom Bath:
+            # Full" landing mid-sentence inside the pet value ("...Dogs
+            # OK, Pet Master Bedroom Bath: Full Count Limitation...").
+            # The x=390 column split and "Elementary:" bottom anchor are
+            # both empirically read off that one real sample -- revisit
+            # if a future private-listing sample splits differently.
+            info_hit = next(
+                (
+                    (pi, ws, w["top"])
+                    for pi, ws in enumerate(pages_words)
+                    for w in ws
+                    if w["text"] == "Information:" and w["x0"] < 300
+                ),
+                None,
+            )
+            if info_hit:
+                pi, words, info_top = info_hit
+                elem_top = next(
+                    (w["top"] for w in words if w["text"].startswith("Elementary:") and w["top"] > info_top),
+                    None,
+                )
+                bottom = (elem_top - 2) if elem_top else (info_top + 40)
+                pet_block = _column_text(words, 0, 390, info_top - 2, bottom)
+                pet_val = _grab(re.sub(r"\s*\n\s*", " ", pet_block), "Pet Information", ["\n"])
+                if pet_val and not _is_nullish(pet_val):
+                    listing.pets_allowed = pet_val
+
     m = re.search(r"Max Pet Weight:(\d+)", page1_text)
     if m:
         # MRED zero-fills this field ("000") when no specific limit was
@@ -699,7 +818,17 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     listing.assessment_includes = _grab(full_text, "Asmt Incl", ["HERS Index Score", "\n"])
 
     # --- Remarks (long free text) -------------------------------------------------
-    m = re.search(r"Remarks:\s*(.*?)\s*(?:School Data|Broker Private Remarks)", full_text, re.S)
+    # "Exterior Property Features"/"Copyright" added as terminators alongside
+    # the standard layout's "School Data"/"Broker Private Remarks" --
+    # compact/private-network exports have neither of those two sections at
+    # all (no School Data header, no broker remarks), so without a
+    # terminator that actually exists in that layout the whole regex fails
+    # to match and remarks comes back completely blank, even though the
+    # sheet has a full remarks paragraph sitting right there.
+    m = re.search(
+        r"Remarks:\s*(.*?)\s*(?:School Data|Broker Private Remarks|Exterior Property Features|Copyright)",
+        full_text, re.S,
+    )
     if m:
         remarks = m.group(1).strip()
         remarks = re.sub(r"\s*\n\s*", " ", remarks)
@@ -748,6 +877,38 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     except Exception:
         pass
 
+    if not feat_col1 and not feat_col2 and not feat_col3:
+        # Compact/private-network exports have no "Age:" grid at all, so
+        # every FEAT_LABELS-based grab below (kitchen, heating, bath
+        # amenities, amenities, laundry, garage details) comes back empty
+        # -- correctly, since none of that data exists on this leaner
+        # sheet. But the one thing this format DOES carry is a short
+        # "Exterior Property Features:" mini-block of plain Garage/Parking
+        # label:value lines (not organized into the usual x-position
+        # grid), e.g. "Garage Ownership: Fee/Leased Parking Ownership:" /
+        # "Garage On Site: Yes Parking On Site:" / "Garage Type: Attached
+        # Parking Space:" / "Garage Space: 1" -- each Garage-side label
+        # paired on the same physical line with a Parking-side label
+        # (usually empty), so the Parking label doubles as this line's own
+        # stop boundary.
+        compact_stops = [
+            "Garage On Site:", "Garage Type:", "Garage Space:",
+            "Parking Ownership:", "Parking On Site:", "Parking Space:",
+            "Copyright",
+        ]
+        g_ownership = _grab(full_text, "Garage Ownership", compact_stops)
+        if g_ownership and not _is_nullish(g_ownership):
+            listing.garage_ownership = g_ownership
+        g_type = _grab(full_text, "Garage Type", compact_stops)
+        if g_type and not _is_nullish(g_type):
+            listing.garage_type = g_type
+        g_onsite = _grab(full_text, "Garage On Site", compact_stops)
+        g_space = _grab(full_text, "Garage Space", compact_stops)
+        if g_space and not listing.parking_spaces:
+            listing.parking_spaces = g_space
+        if (g_onsite or "").strip().lower() == "yes" and not listing.parking_type:
+            listing.parking_type = "Garage"
+
     # The feature grid's exact set/order of fields varies by property type
     # (a detached home adds Attic/Basement Details/Additional Rooms/Gas
     # Supplier/etc that a condo sheet doesn't carry), and some source PDFs
@@ -780,7 +941,14 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         return _grab(text, label, list(primary_stops) + FEAT_LABELS)
 
     listing.interior_features = _grab(full_text, "Interior Property Features", ["Exterior Property Features"])
-    listing.exterior_features = _grab(full_text, "Exterior Property Features", ["Age:"])
+    # "Garage Ownership:" added as a stop -- compact/private-network
+    # exports label a short Garage/Parking-only mini-block "Exterior
+    # Property Features:" with no actual exterior bullet content before
+    # it, and _grab()'s "\s*" after the colon eats the newline right up
+    # to that mini-block's first line, so without this stop the grab
+    # swallows "Garage Ownership: Fee/Leased Parking Ownership:" as if it
+    # were the exterior-features value.
+    listing.exterior_features = _grab(full_text, "Exterior Property Features", ["Age:", "Garage Ownership:"])
 
     # Exposure (unit-facing direction, e.g. "N (North), W (West)") --
     # condo-relevant, affects natural light expectations. Not significant
@@ -803,7 +971,16 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     listing.laundry = _grab_feat(feat_col2, "Laundry Features")
     listing.age = _grab_feat(feat_col1, "Age") or listing.age
     m = re.search(r"\bParking:(Garage|None|Space/s|Assigned Spaces|Off Street|Driveway|N/A)", page1_text)
-    listing.parking_type = m.group(1) if m else ""
+    # Falls back to whatever parking_type may already be set (rather than
+    # blanking it) when this header pattern doesn't match -- compact/
+    # private-network exports don't carry a "Parking:Garage"-style header
+    # token at all, so this regex never matches for them, but the
+    # compact-format block above (see feat_col1/2/3-empty branch) already
+    # derived "Garage" from "Garage On Site: Yes" for that format; this
+    # used to unconditionally overwrite that with "", silently dropping
+    # the whole Parking & Garage card since feature_groups() gates it on
+    # parking_type being non-empty.
+    listing.parking_type = m.group(1) if m else (listing.parking_type or "")
     listing.garage_details = _grab_feat(feat_col2, "Garage Details")
     # "Garage Ownership:" was already a recognized FEAT_LABELS stop-word
     # (protecting neighboring grabs' boundaries) but was never itself

@@ -105,6 +105,18 @@ h1, h2, h3 { margin: 0; padding: 0; }
   border-radius: 2px;
   text-transform: uppercase;
 }
+.status-badge.private { background: var(--ruge); }
+.private-note {
+  font-size: 8.2pt;
+  line-height: 1.35;
+  color: var(--ruge);
+  background: rgba(120, 0, 0, 0.06);
+  border: 0.75pt solid var(--ruge);
+  border-radius: 3px;
+  padding: 6px 9px;
+  margin: 6px 0 4px;
+}
+.private-note b { text-transform: uppercase; letter-spacing: 0.03em; }
 .hero-info {
   flex: 1;
   min-width: 0;
@@ -448,7 +460,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
     {% if photo_path %}
     <div class="hero-photo" style="background-image: url('file://{{ photo_path }}');"></div>
     {% endif %}
-    {% if l.status %}<div class="status-badge">{{ status_label }}</div>{% endif %}
+    {% if l.status %}<div class="status-badge{% if is_private %} private{% endif %}">{{ status_label }}</div>{% endif %}
   </div>
   <div class="hero-info">
     <h1 class="serif">{{ l.street_address }}</h1>
@@ -485,6 +497,8 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
   <div class="fact"><span class="num">{{ l.stories or '—' }}</span><span class="lbl">Stories</span></div>
   {% endif %}
 </div>
+
+{% if private_listing_note %}<div class="private-note"><b>Private Listing:</b> {{ private_listing_note }}</div>{% endif %}
 
 <div class="section-title">About This Home</div>
 {% if remarks_lead %}<div class="remarks-lead {{ remarks_size_class }}">&ldquo;{{ remarks_lead }}&rdquo;</div>{% endif %}
