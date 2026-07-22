@@ -15,6 +15,7 @@ restart):
 """
 import json
 import os
+import re
 import tempfile
 import traceback
 from datetime import datetime
@@ -26,6 +27,17 @@ from packet import build_packet, split_into_listing_pdfs
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 300 * 1024 * 1024  # 300MB total upload cap
+
+
+def _filename_slug(s, max_len=60):
+    """Filesystem-safe slug for building the downloaded packet's filename
+    out of free-text fields (client name in particular -- e.g. "The
+    Martinez Family" -> "The_Martinez_Family"). Collapses anything that
+    isn't a letter/digit into a single underscore and trims leading/
+    trailing underscores; caps length so an unusually long client name
+    can't produce an unwieldy filename."""
+    s = re.sub(r"[^A-Za-z0-9]+", "_", (s or "")).strip("_")
+    return s[:max_len]
 
 DEFAULT_AGENT_NAME = os.environ.get("AGENT_NAME", "Brian Elmore")
 DEFAULT_AGENT_PHONE = os.environ.get("AGENT_PHONE", "")
@@ -496,7 +508,18 @@ def generate():
             pass
         return response
 
-    out_name = f"JLG_Showing_Packet_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    # Downloaded filename includes the client name (when given) and
+    # today's date, e.g. "JLG_Showing_Packet_The_Martinez_Family_2026-07-
+    # 22.pdf" -- Brian asked for this so packets for different clients/
+    # days are distinguishable in a downloads folder without opening each
+    # one. Falls back to a timestamp (date + time) instead of just the
+    # date when no client name is given, to keep same-day no-client
+    # packets from colliding.
+    client_slug = _filename_slug(client_name)
+    if client_slug:
+        out_name = f"JLG_Showing_Packet_{client_slug}_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+    else:
+        out_name = f"JLG_Showing_Packet_{datetime.now().strftime('%Y-%m-%d_%H%M')}.pdf"
     return send_file(tmp_out.name, as_attachment=True, download_name=out_name)
 
 
