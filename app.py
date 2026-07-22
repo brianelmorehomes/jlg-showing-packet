@@ -344,13 +344,21 @@ generateBtn.addEventListener('click', () => {
   fetch('/generate', { method: 'POST', body: form })
     .then(async r => {
       if (!r.ok) { throw new Error(await r.text()); }
-      return r.blob();
+      // Server names the file from client name + date (see /generate's
+      // Content-Disposition header) -- read it here instead of hardcoding
+      // a generic name, which previously silently overrode whatever the
+      // server sent.
+      const disposition = r.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      const filename = match ? match[1] : 'JLG_Showing_Packet.pdf';
+      const blob = await r.blob();
+      return { blob, filename };
     })
-    .then(blob => {
+    .then(({ blob, filename }) => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'JLG_Showing_Packet.pdf';
+      a.download = filename;
       a.click();
       genStatus.textContent = 'Done — packet downloaded.';
       generateBtn.disabled = false;
