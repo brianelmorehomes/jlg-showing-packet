@@ -187,6 +187,12 @@ def market_time_display(listing):
     # line rather than a separate card, since it's a single short flag.
     if (listing.curr_leased or "").strip().lower() == "yes":
         parts.append("Tenant-Occupied")
+    # Possession terms (e.g. "Closing", "Negotiable") -- another real
+    # move-in-timeline fact, same reasoning as Tenant-Occupied above:
+    # short enough to fold into this one header line rather than earning
+    # its own card.
+    if listing.possession:
+        parts.append(f"Possession: {listing.possession}")
     return " · ".join(parts)
 
 
@@ -527,8 +533,16 @@ def feature_groups(listing, water_features_display_val, water_utilities_display_
     place instead of being duplicated between a Python balancer and a
     Jinja template."""
     groups = []
-    if listing.interior_features:
-        groups.append(("Interior", listing.interior_features))
+    interior_body = listing.interior_features
+    # Fireplace type/room (e.g. "Gas Starter, Living Room") -- the facts
+    # strip already shows a bare count, this is what kind and/or which
+    # room, when the sheet says more than that. Folded in here rather
+    # than given its own card since it's typically a short phrase.
+    if listing.fireplace_details:
+        fp_line = f"Fireplace: {listing.fireplace_details}"
+        interior_body = f"{interior_body}; {fp_line}" if interior_body else fp_line
+    if interior_body:
+        groups.append(("Interior", interior_body))
     if listing.kitchen_features or listing.appliances:
         parts = []
         if listing.kitchen_features:

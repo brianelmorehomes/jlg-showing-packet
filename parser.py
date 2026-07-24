@@ -230,7 +230,20 @@ class Listing:
     basement: str = ""
     basement_bath: str = ""
     fireplaces: str = ""
+    fireplace_details: str = ""  # type and/or room, e.g. "Wood Burning,
+                                  # Living Room" -- fireplaces above is
+                                  # just the bare count; buyers asked for
+                                  # more than a number when it's available
     stories: str = ""
+
+    possession: str = ""  # e.g. MRED "Possession:" ("Closing", "Negotiable")
+                           # or MichRIC "Possession:" -- when a buyer can
+                           # actually move in, a real gap the bare price/
+                           # facts strip doesn't answer
+    pct_owner_occupied: str = ""  # MRED "% Own. Occ.:" -- condo-specific;
+                                   # affects FHA/some conventional loan
+                                   # eligibility, so worth surfacing when
+                                   # the sheet has it
 
     assessment_amount: str = ""
     assessment_frequency: str = ""
@@ -1013,6 +1026,67 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     m = re.search(r"(\d+)\+?\s*Stor(?:y|ies)", type_val)
     if m:
         listing.stories = m.group(1)
+
+    # Fireplace type/location -- the facts strip already shows a bare
+    # count (# Fireplaces), this is what kind and/or which room, when the
+    # sheet says more than that.
+    fp_details = _grab_feat(feat_col1, "Fireplace Details")
+    fp_location = _grab_feat(feat_col1, "Fireplace Location")
+    fp_parts = [p for p in (fp_details, fp_location) if p and not _is_nullish(p)]
+    if fp_parts:
+        listing.fireplace_details = ", ".join(fp_parts)
+
+    # Roof, Lot Description, and Other Structures fold into Exterior with
+    # a "Label: value" prefix -- same convention parser_michric.py already
+    # uses for Roofing/Lot Description on MI sheets, so both apps' Exterior
+    # card reads the same way regardless of source MLS.
+    roof = _grab_feat(feat_col2, "Roof")
+    if roof and not _is_nullish(roof):
+        listing.exterior_features = (
+            f"{listing.exterior_features}; Roof: {roof}" if listing.exterior_features else f"Roof: {roof}"
+        )
+    lot_desc = _grab_feat(feat_col2, "Lot Desc")
+    if lot_desc and not _is_nullish(lot_desc):
+        listing.exterior_features = (
+            f"{listing.exterior_features}; Lot: {lot_desc}" if listing.exterior_features else f"Lot: {lot_desc}"
+        )
+    other_structures = _grab_feat(feat_col1, "Other Structures")
+    if other_structures and not _is_nullish(other_structures):
+        listing.exterior_features = (
+            f"{listing.exterior_features}; Other Structures: {other_structures}" if listing.exterior_features else f"Other Structures: {other_structures}"
+        )
+
+    # Equipment (extras included in the sale, e.g. "Intercom, Ceiling Fan")
+    # and Additional Rooms fold into Interior the same way. "No additional
+    # rooms" is this field's own literal null-value phrasing (not in the
+    # general _NULLISH set, which only covers single words like "None"),
+    # so it needs its own check to avoid printing that non-answer verbatim.
+    equipment = _grab_feat(feat_col1, "Equipment")
+    if equipment and not _is_nullish(equipment):
+        listing.interior_features = (
+            f"{listing.interior_features}; Extras: {equipment}" if listing.interior_features else f"Extras: {equipment}"
+        )
+    additional_rooms = _grab_feat(feat_col1, "Additional Rooms")
+    if (
+        additional_rooms
+        and not _is_nullish(additional_rooms)
+        and additional_rooms.strip().lower() != "no additional rooms"
+    ):
+        listing.interior_features = (
+            f"{listing.interior_features}; Additional Rooms: {additional_rooms}" if listing.interior_features else f"Additional Rooms: {additional_rooms}"
+        )
+
+    # Possession terms (e.g. "Closing", "Negotiable", a specific date) --
+    # lives in the same right-hand column as Sale Terms/Amenities/Asmt Incl.
+    possession = _grab_feat(feat_col3, "Possession")
+    if possession and not _is_nullish(possession):
+        listing.possession = possession
+
+    # % Owner-Occupied -- header-block field (not part of the feature
+    # grid), condo-specific, affects FHA/some conventional loan eligibility.
+    pct_own_occ = _grab(page1_text, "% Own. Occ.", ["% Cmn. Own.", "\n"])
+    if pct_own_occ and not _is_nullish(pct_own_occ):
+        listing.pct_owner_occupied = pct_own_occ
 
     # --- Room dimension tables (two side-by-side mini tables) ---------------------
     # MRED's room-name picklist is large, especially once a listing has a

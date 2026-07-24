@@ -566,6 +566,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
       <div class="c-title">Assessment</div>
       {% if assessment_line_display %}<div class="c-line"><b>{{ assessment_line_display }}</b></div>{% endif %}
       {% if l.assessment_includes and l.assessment_includes != 'None' %}<div class="c-line">Includes: {{ l.assessment_includes }}</div>{% endif %}
+      {% if l.pct_owner_occupied %}<div class="c-line">Owner-Occupied: {{ l.pct_owner_occupied }}%</div>{% endif %}
       {% if l.special_assessments %}<div class="c-line">Special: {{ l.special_assessments }}</div>{% endif %}
     </div>
     <div class="card">

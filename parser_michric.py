@@ -401,6 +401,53 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     if m:
         listing.homestead_pct = m.group(1)
 
+    # --- Fireplace location(s) / Possession terms ---------------------------
+    # Both live in the same wrapped, glued-word-boundary-prone header facts
+    # area as Architectural Style/Body of Water below -- a plain same-line
+    # regex against the linear text is NOT safe here (unlike the plain
+    # fields above) because this source PDF's text layer sometimes glues
+    # an adjacent column's word onto this column's last word with zero
+    # space (e.g. "3 to" + "Conventional" -> "3 toConventional"), and
+    # pdfplumber's own line-wrapping interleaves unrelated columns' rows.
+    # Anchored on the label's own word position (not a hardcoded page
+    # coordinate) so it adapts to whatever row this happens to fall on.
+    fp_labels = sorted((w for w in words if w["text"] == "Fireplace:"), key=lambda w: w["top"])
+    if len(fp_labels) >= 2:
+        # The first "Fireplace:" is always the Yes/No flag; any further
+        # ones give the room(s), e.g. "Fireplace: Family Room" wrapping
+        # onto a continuation line "Living Room".
+        loc_word = fp_labels[1]
+        loc_x0 = loc_word["x0"]
+        boundary = loc_x0 + 101
+        tf_top = _find_word_top(words, "Total", after_top=loc_word["top"] - 1)
+        top_max = (tf_top - 1) if tf_top else (loc_word["top"] + 19)
+        split_words = _split_boundary_merged_words(words, [boundary])
+        col = _column_text(split_words, loc_x0 - 4, boundary, loc_word["top"] - 1, top_max)
+        flat = re.sub(r"\s*\n\s*", " ", col)
+        fp_val = re.sub(r"^Fireplace:\s*", "", flat).strip().rstrip(";")
+        if fp_val and not _is_nullish(fp_val):
+            listing.fireplace_details = fp_val
+
+    poss_word = next((w for w in words if w["text"] == "Possession:"), None)
+    if poss_word:
+        poss_top, poss_x0 = poss_word["top"], poss_word["x0"]
+        boundary = poss_x0 + 101
+        # "Association:" reliably follows Possession as the next row down
+        # -- used as the real bottom boundary rather than a fixed offset,
+        # since the vertical gap varies with whether Possession's own
+        # value happens to wrap onto a 2nd line (~18pt away) or not
+        # (~9pt) -- a fixed guess either truncates a wrapped value or (as
+        # first shipped) bleeds into "Association: No" on sheets where it
+        # doesn't wrap.
+        assoc_top = _find_word_top(words, "Association:", after_top=poss_top - 1)
+        top_max = (assoc_top - 1) if assoc_top else (poss_top + 17)
+        split_words = _split_boundary_merged_words(words, [boundary])
+        col = _column_text(split_words, poss_x0 - 4, boundary, poss_top - 1, top_max)
+        flat = re.sub(r"\s*\n\s*", " ", col)
+        poss_val = _grab(flat, "Possession", ["\n"])
+        if poss_val and not _is_nullish(poss_val):
+            listing.possession = poss_val
+
     # --- Architectural Style / Body of Water (wrap-prone header fields) ----
     # Both live in the same 3-up header facts grid as everything above, but
     # unlike those, their *values* can land on a different visual row than
@@ -655,7 +702,42 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         # --- Additional Details (same 3-up grid, next section down) -------
         if ad_header:
             ad_top, _ = ad_header
-            other_top = _find_word_top(words, "Other", after_top=ad_top) or _find_word_top(words, "Brian", after_top=ad_top)
+
+            # Bound the bottom of this grid at wherever the agent-info/
+            # compliance-footer block starts -- which is sometimes on this
+            # same page (right below the grid) and sometimes on the next
+            # page entirely (nothing on this page's word list to find).
+            # The old approach searched for a bare "Other" word first, on
+            # the assumption it marks some section heading on certain
+            # sheets, falling back to "Brian" (the agent block's first
+            # word) otherwise -- but on a sheet whose "Additional Details"
+            # grid itself contains "Other Equipment:" as a field label, or
+            # an "Assoc. Amenities: Other" / "...Incl.: Snow Removal;
+            # Other" value ending in the bare word "Other", that search
+            # matched the WRONG "Other" -- the grid's own content -- and
+            # cut the grid off right as it began, silently dropping
+            # everything from "Other Equipment:" on down (Assoc. Amenities,
+            # Assoc. Fee Incl., etc.) on real listings that have those
+            # fields. Now only treats "Other" as a real section-boundary
+            # candidate when it stands alone -- not glued to a colon-label
+            # either right before it (a trailing bare value, e.g. "...
+            # Incl.: Snow Removal; Other") or right after it on the same
+            # row (a label itself, e.g. "Other Equipment:").
+            def _real_other_top():
+                ordered = sorted(words, key=lambda w: (w["top"], w["x0"]))
+                for i, w in enumerate(ordered):
+                    if w["text"] != "Other" or w["top"] <= ad_top:
+                        continue
+                    nxt = ordered[i + 1] if i + 1 < len(ordered) else None
+                    if nxt and abs(nxt["top"] - w["top"]) < 2 and nxt["text"].endswith(":"):
+                        continue
+                    prev = ordered[i - 1] if i > 0 else None
+                    if prev and abs(prev["top"] - w["top"]) < 2:
+                        continue
+                    return w["top"]
+                return None
+
+            other_top = _real_other_top() or _find_word_top(words, "Brian", after_top=ad_top)
             ad_bottom = other_top or page_height
             add1, add2, add3 = _three_cols(words, left_margin, ad_top - 1, ad_bottom - 2, page_width)
             add1_flat = re.sub(r"\s*\n\s*", " ", add1)
@@ -667,7 +749,7 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
                 listing.interior_features = (
                     f"{listing.interior_features}; {extra_items}" if listing.interior_features else extra_items
                 )
-            lot_desc = _grab(add2_flat, "Lot Description", ["Security Features:", "Mineral Rights:", "Zoning:", "$"])
+            lot_desc = _grab(add2_flat, "Lot Description", ["Security Features:", "Mineral Rights:", "Zoning:", "Assoc. Amenities:", "Assoc. Fee Incl.:", "$"])
             if lot_desc:
                 listing.exterior_features = (
                     f"{listing.exterior_features}; Lot: {lot_desc}" if listing.exterior_features else f"Lot: {lot_desc}"
@@ -676,11 +758,23 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             # for lot_desc above (so it wouldn't get swallowed into Lot
             # Description), but -- same pattern as Pool/Water/Sewer above
             # -- was never actually captured anywhere itself.
-            security = _grab(add2_flat, "Security Features", ["Mineral Rights:", "Zoning:", "$"])
+            security = _grab(add2_flat, "Security Features", ["Mineral Rights:", "Zoning:", "Assoc. Amenities:", "Assoc. Fee Incl.:", "$"])
             if security and not _is_nullish(security):
                 listing.interior_features = (
                     f"{listing.interior_features}; Security: {security}" if listing.interior_features else f"Security: {security}"
                 )
+
+            # What the HOA/association fee includes, e.g. "Snow Removal" --
+            # MRED listings already show this (Asmt Incl:); MichRIC sheets
+            # carry the same fact under "Assoc. Fee Incl.:" but it was
+            # never wired up, both because it wasn't captured at all and
+            # because the grid-bottom bug above was cutting it out of
+            # add2_flat entirely on sheets that have it. Reuses the
+            # existing assessment_includes field MRED already populates,
+            # so no template changes are needed to display it.
+            fee_incl = _grab(add2_flat, "Assoc. Fee Incl.", ["Assoc. Amenities:", "$"])
+            if fee_incl and not _is_nullish(fee_incl):
+                listing.assessment_includes = fee_incl
 
     # --- Room dimensions (same fixed 3-up grid) ------------------------------
     dim_top = _find_word_top(words, "Dimensions")
