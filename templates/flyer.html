@@ -192,31 +192,22 @@ h1, h2, h3 { margin: 0; padding: 0; }
   padding: 0 4px;
 }
 .fact:last-child { border-right: none; }
+/* Every fact value (beds/baths/sqft, lot size, year built, parking,
+   rooms, stories, etc.) renders at one consistent serif size/weight
+   regardless of which row it's in or whether it's a number, a word
+   ("Common"), or a placeholder ("Unknown") -- and every label/note
+   underneath renders at one consistent sans-serif size -- so the whole
+   facts strip reads as a single uniform grid instead of a mix of sizes. */
 .fact .num {
   font-family: 'Playfair Display', serif;
   font-weight: 700;
-  font-size: 15pt;
+  font-size: 12pt;
   color: var(--broker-blue);
   display: block;
-}
-.facts-strip-secondary .fact .num { font-size: 12pt; }
-.fact .num.text {
-  font-size: 11pt;
-  letter-spacing: -0.01em;
-}
-/* "TBD"/"Unknown" placeholders read as visually heavier than a real
-   number or short dimension string at the same point size -- a whole
-   word in 15pt bold serif competes with the real data around it instead
-   of quietly saying "no data yet." Dialed down to the same smaller size
-   used for text-style facts (e.g. lot size), but kept in the same
-   Playfair Display serif / broker-blue treatment as every other fact so
-   it still reads as one consistent row, not a mismatched font. */
-.fact .num.placeholder {
-  font-size: 11pt;
   letter-spacing: -0.01em;
 }
 .fact .lbl {
-  font-size: 6.8pt;
+  font-size: 7pt;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--granite);
