@@ -207,15 +207,13 @@ h1, h2, h3 { margin: 0; padding: 0; }
 /* "TBD"/"Unknown" placeholders read as visually heavier than a real
    number or short dimension string at the same point size -- a whole
    word in 15pt bold serif competes with the real data around it instead
-   of quietly saying "no data yet." Dialed down to match the plainer
-   sans-serif weight used for body/label text elsewhere on the flyer,
-   rather than the shouted big-number treatment reserved for real facts. */
+   of quietly saying "no data yet." Dialed down to the same smaller size
+   used for text-style facts (e.g. lot size), but kept in the same
+   Playfair Display serif / broker-blue treatment as every other fact so
+   it still reads as one consistent row, not a mismatched font. */
 .fact .num.placeholder {
-  font-family: 'Work Sans', sans-serif;
-  font-weight: 600;
-  font-size: 10pt;
-  color: var(--granite);
-  letter-spacing: normal;
+  font-size: 11pt;
+  letter-spacing: -0.01em;
 }
 .fact .lbl {
   font-size: 6.8pt;
