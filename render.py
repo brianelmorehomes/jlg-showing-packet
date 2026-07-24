@@ -129,6 +129,20 @@ def friendly_property_type(listing):
     return base
 
 
+def _spell_out_unk(val):
+    """MRED frequently abbreviates a genuinely-unknown value as the bare
+    token "UNK" (seen on real listings in Year Built and lot-size fields
+    in particular) -- title-casing that generically (like every other
+    shouted-all-caps MRED value) produces "Unk", which reads like a typo
+    rather than a word. Spell it out instead. Returns None (not a
+    passthrough) when val isn't a form of "unknown", so callers can tell
+    "this wasn't a match" apart from "the real value happens to be the
+    string Unknown"."""
+    if (val or "").strip().upper() in ("UNK", "UNK.", "UNKNOWN"):
+        return "Unknown"
+    return None
+
+
 def lot_size_display(listing):
     """Format the MRED 'Dimensions' (lot size) field for buyer-facing display.
 
@@ -140,9 +154,24 @@ def lot_size_display(listing):
     val = (listing.lot_size or "").strip()
     if not val:
         return "TBD"
+    unk = _spell_out_unk(val)
+    if unk:
+        return unk
     if re.fullmatch(r"[A-Za-z ]+", val) and val.upper() == val:
         return val.title()
     return val
+
+
+def year_built_display(listing):
+    """Year Built is shown directly from the raw field everywhere else in
+    the facts strip (no formatting needed for a plain 4-digit year), but
+    -- like lot size above -- MRED sometimes literally has "Year Built:
+    UNK" for a property whose vintage isn't on record. Spell that out the
+    same way rather than showing the bare abbreviation."""
+    val = (listing.year_built or "").strip()
+    if not val:
+        return "—"
+    return _spell_out_unk(val) or val
 
 
 def parking_note(listing):
@@ -745,6 +774,7 @@ def render_flyer(
         agent_name=agent_name or "Brian Elmore",
         sqft_display=listing.approx_sf or "TBD",
         lot_size_display=lot_size_display(listing),
+        year_built_display=year_built_display(listing),
         parking_note=parking_note(listing),
         market_time_display=market_time_display(listing),
         mult_pins_display=mult_pins_display(listing),

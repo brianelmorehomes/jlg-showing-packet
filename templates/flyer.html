@@ -204,6 +204,19 @@ h1, h2, h3 { margin: 0; padding: 0; }
   font-size: 11pt;
   letter-spacing: -0.01em;
 }
+/* "TBD"/"Unknown" placeholders read as visually heavier than a real
+   number or short dimension string at the same point size -- a whole
+   word in 15pt bold serif competes with the real data around it instead
+   of quietly saying "no data yet." Dialed down to match the plainer
+   sans-serif weight used for body/label text elsewhere on the flyer,
+   rather than the shouted big-number treatment reserved for real facts. */
+.fact .num.placeholder {
+  font-family: 'Work Sans', sans-serif;
+  font-weight: 600;
+  font-size: 10pt;
+  color: var(--granite);
+  letter-spacing: normal;
+}
 .fact .lbl {
   font-size: 6.8pt;
   text-transform: uppercase;
@@ -476,9 +489,9 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
 <div class="facts-strip">
   <div class="fact"><span class="num">{{ l.bedrooms or '—' }}</span><span class="lbl">Beds</span></div>
   <div class="fact"><span class="num">{{ l.bathrooms_display or '—' }}</span><span class="lbl">Baths</span></div>
-  <div class="fact"><span class="num">{{ sqft_display }}</span><span class="lbl">Sq Ft</span></div>
-  <div class="fact"><span class="num text">{{ lot_size_display }}</span><span class="lbl">Lot Size</span></div>
-  <div class="fact"><span class="num">{{ l.year_built or '—' }}</span><span class="lbl">Year Built</span></div>
+  <div class="fact"><span class="num{% if sqft_display == 'TBD' %} placeholder{% endif %}">{{ sqft_display }}</span><span class="lbl">Sq Ft</span></div>
+  <div class="fact"><span class="num text{% if lot_size_display in ('TBD', 'Unknown') %} placeholder{% endif %}">{{ lot_size_display }}</span><span class="lbl">Lot Size</span></div>
+  <div class="fact"><span class="num{% if year_built_display == 'Unknown' %} placeholder{% endif %}">{{ year_built_display }}</span><span class="lbl">Year Built</span></div>
 </div>
 <div class="facts-strip-secondary">
   <div class="fact">
