@@ -177,6 +177,8 @@ PAGE = """
     <button class="primary" id="generateBtn" type="button">Generate Showing Packet</button>
     <div id="genStatus" style="font-size:13px;color:#666;margin-top:10px;"></div>
   </div>
+
+  <p style="text-align:center;font-size:12px;color:#888;margin-top:28px;">Built &amp; maintained by Brian Elmore &middot; 2026</p>
 </div>
 
 <script>
