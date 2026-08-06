@@ -49,80 +49,138 @@ PAGE = """
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>JLG Showing Packet Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-  body { font-family: -apple-system, 'Work Sans', sans-serif; background:#f2f2f2; margin:0; padding:0; color:#222; }
-  .wrap { max-width: 820px; margin: 0 auto; padding: 36px 24px 80px; }
-  header { display:flex; align-items:center; gap:14px; margin-bottom: 10px; }
-  header h1 { font-size: 19px; margin:0; color:#032b42; }
-  .sub { font-size: 13px; color:#666; margin-bottom: 24px; }
-  .card { background:#fff; border-radius:8px; padding:24px; margin-bottom:20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-  .card h2 { font-size: 13.5px; color:#032b42; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 0.04em; }
+  :root {
+    --blue: #032b42;
+    --blue-dk: #021e30;
+    --blue-md: #04395a;
+    --slate: #f2f2f2;
+    --red: #780000;
+    --red-hv: #8f0000;
+    --white: #ffffff;
+    --text: #1a1a1a;
+    --muted: #6b6b6b;
+    --border: rgba(0,0,0,.08);
+    --border-b: rgba(3,43,66,.12);
+    --r: 4px;
+    --rl: 8px;
+    --d: .28s;
+    --ease: cubic-bezier(.4,0,.2,1);
+    --sh: 0 4px 20px rgba(0,0,0,.08);
+    --sh-l: 0 12px 40px rgba(0,0,0,.14);
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: 'Plus Jakarta Sans', sans-serif; background: var(--slate); color: var(--text); }
+  h1, h2 { font-family: 'DM Serif Display', serif; font-weight: 400; margin: 0; }
+
+  header.top { background: var(--blue); padding: 22px 0; }
+  .top-in { max-width: 820px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; gap: 18px; }
+  .top-in img { height: 30px; width: auto; display: block; }
+  .top-title { color: rgba(255,255,255,.55); font-size: .82rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; border-left: 1px solid rgba(255,255,255,.25); padding-left: 18px; }
+
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 24px 100px; }
+  .hero { margin-bottom: 32px; }
+  .hero h1 { font-size: 1.7rem; color: var(--blue); }
+  .hero p { color: var(--muted); margin-top: 8px; font-size: .95rem; max-width: 600px; }
+
+  .card { background:#fff; border-radius: var(--rl); padding:24px; margin-bottom:20px; box-shadow: var(--sh); }
+  .step-num { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--red); color: #fff; font-size: .78rem; font-weight: 700; font-family: 'Plus Jakarta Sans'; margin-right: 10px; flex-shrink: 0; }
+  .card h2 { font-size: 1.1rem; color: var(--blue); font-family: 'Plus Jakarta Sans'; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; }
   #dropzone {
-    border: 2px dashed #032b42; border-radius:8px; padding: 40px 20px; text-align:center;
-    color:#032b42; cursor:pointer; transition: background 0.15s;
+    border: 2px dashed var(--border-b); border-radius: var(--rl); padding: 32px 20px; text-align:center;
+    color: var(--blue); cursor:pointer; transition: border-color var(--d) var(--ease), background var(--d) var(--ease);
   }
-  #dropzone.drag { background:#eef3f6; }
-  #dropzone p { margin: 6px 0; }
-  #dropzone .hint { font-size:12.5px; color:#888; }
+  #dropzone:hover, #dropzone.drag { border-color: var(--blue); background: var(--slate); }
+  #dropzone p { margin: 6px 0; font-size: .92rem; }
+  #dropzone .hint { font-size:.8rem; color:var(--muted); }
   input[type=file] { display:none; }
-  .settings-row { display:flex; gap:14px; flex-wrap:wrap; }
+  .settings-row { display:flex; gap:16px; flex-wrap:wrap; }
   .settings-row > div { flex: 1 1 200px; }
-  .settings-row label { font-size:12.5px; color:#444; display:block; margin-bottom:4px; }
+  .settings-row label { font-size:.78rem; font-weight: 700; color: var(--blue); text-transform: uppercase; letter-spacing: .03em; display:block; margin-bottom:6px; }
   .settings-row input[type=text] {
-    padding:8px 10px; border:1px solid #ccc; border-radius:5px; font-size:13.5px; width:100%;
+    padding:11px 13px; border:1.5px solid var(--border-b); border-radius: var(--r); font-size:.92rem; font-family: inherit; width:100%;
   }
+  .settings-row input[type=text]:focus { outline: none; border-color: var(--blue); }
   button.primary {
-    background:#032b42; color:#fff; border:none; padding:10px 18px; border-radius:5px;
-    font-size:13.5px; cursor:pointer; margin-top:14px;
+    display: inline-flex; align-items: center; gap: 10px; background: var(--red); color: #fff; border: none;
+    padding: 13px 24px; border-radius: var(--r); font-family: inherit; font-size:.88rem; font-weight: 700;
+    letter-spacing: .01em; cursor:pointer; margin-top:14px; transition: background var(--d) var(--ease);
   }
-  button.primary:hover { background:#04405f; }
-  button.primary:disabled { background:#9aa7ae; cursor:default; }
+  button.primary:hover { background: var(--red-hv); }
+  button.primary:disabled { background:#c9c9c9; cursor:default; }
   button.secondary {
-    background:#fff; color:#032b42; border:1px solid #032b42; padding:9px 16px; border-radius:5px;
-    font-size:13px; cursor:pointer;
+    background:#fff; color: var(--blue); border:1.5px solid var(--border-b); padding:10px 16px; border-radius: var(--r);
+    font-family: inherit; font-size:.85rem; font-weight: 700; cursor:pointer; transition: border-color var(--d) var(--ease);
   }
-  #status { font-size:13px; color:#666; margin-top:10px; }
+  button.secondary:hover { border-color: var(--blue); }
+  #status { font-size:.85rem; color:var(--muted); margin-top:10px; }
   #errors { margin-top: 10px; }
-  .error-row { color:#780000; font-size:12.5px; padding:4px 0; }
+  .error-row { color: var(--red); font-size:.8rem; padding:4px 0; }
 
   #stepSequence { display:none; }
 
   .seq-row {
-    display:flex; align-items:center; gap:12px; background:#fafbfb; border:1px solid #e6e8ea;
+    display:flex; align-items:center; gap:12px; background:#fafbfb; border:1px solid var(--border);
     border-radius:6px; padding:10px 12px; margin-bottom:8px; cursor:grab;
   }
   .seq-row.dragging { opacity: 0.4; }
   .seq-row .handle { color:#b7bcbe; font-size:14px; user-select:none; }
   .seq-row .badge {
-    flex: 0 0 24px; height:24px; border-radius:50%; background:#032b42; color:#fff;
+    flex: 0 0 24px; height:24px; border-radius:50%; background: var(--blue); color:#fff;
     font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center;
   }
   .seq-row .info { flex:1; min-width:0; }
-  .seq-row .info .addr { font-weight:600; font-size:13px; color:#222; }
-  .seq-row .info .facts { font-size:11.5px; color:#888; margin-top:1px; }
+  .seq-row .info .addr { font-weight:700; font-size:.85rem; color: var(--text); }
+  .seq-row .info .facts { font-size:.75rem; color:var(--muted); margin-top:1px; }
   .seq-row input[type=text].time-input {
-    width: 110px; padding:7px 9px; border:1px solid #ccc; border-radius:5px; font-size:13px;
+    width: 110px; padding:7px 9px; border:1.5px solid var(--border-b); border-radius: var(--r); font-size:.85rem; font-family: inherit;
   }
   .seq-row .remove { color:#9a9a9c; cursor:pointer; font-size:12px; padding:0 4px; }
-  .seq-row .remove:hover { color:#780000; }
+  .seq-row .remove:hover { color: var(--red); }
+
+  .build-credit { text-align: center; margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--border); font-size: .74rem; color: var(--muted); }
+
+  @media (max-width: 640px) {
+    .top-in { padding: 0 16px; gap: 12px; }
+    .top-in img { height: 24px; }
+    .top-title { font-size: .7rem; padding-left: 12px; }
+    .wrap { padding: 24px 16px 64px; }
+    .hero h1 { font-size: 1.4rem; }
+    .card { padding: 18px; border-radius: var(--r); }
+    .settings-row { flex-direction: column; gap: 14px; }
+    .settings-row input[type=text] { font-size: 16px; }
+    button.primary { width: 100%; justify-content: center; }
+  }
 </style>
 </head>
 <body>
+
+<header class="top">
+  <div class="top-in">
+    <img src="/static/logo/jlg-horizontal-white.svg" alt="Justin Lucas Group">
+    <span class="top-title">Internal Tool</span>
+  </div>
+</header>
+
 <div class="wrap">
-  <header>
-    <h1>Justin Lucas Group &mdash; Showing Packet Builder</h1>
-  </header>
-  <div class="sub">Drop in raw MLS listing sheets for a showing, put them in order, add times, and get back one branded PDF packet: cover page + route map + each listing's flyer, in order. Nothing is stored on the server.</div>
+  <div class="hero">
+    <h1>Showing Packet Builder</h1>
+    <p>Drop in raw MLS listing sheets for a showing, put them in order, add times, and get back one branded PDF packet: cover page + route map + each listing's flyer, in order. Nothing is stored on the server.</p>
+  </div>
 
   <div class="card" id="stepParse">
-    <h2>1. Add listings</h2>
+    <h2><span class="step-num">1</span>Add listings</h2>
     <div id="dropzone">
       <p><strong>Drag &amp; drop listing sheet PDF(s) here</strong></p>
       <p class="hint">or click to browse &mdash; select every property on today's showing list at once</p>
       <input type="file" id="fileInput" accept="application/pdf" multiple>
     </div>
-    <div style="font-size:11.5px;color:#888;margin-top:8px;">
+    <div style="font-size:.78rem;color:var(--muted);margin-top:10px;">
       MichRIC (Michigan) listings: export the <strong>NEW MichRIC Full Detail Report</strong> format &mdash; the one with a "Property Features" grid (Exterior / Interior / Construction-Utilities columns) and a "Tax and Legal" section. The older single-column report layout isn't supported and will come back mostly blank.
     </div>
     <div id="status"></div>
@@ -130,14 +188,14 @@ PAGE = """
   </div>
 
   <div class="card" id="stepSequence">
-    <h2>2. Drag into showing order &amp; enter a time for each stop</h2>
-    <div style="font-size:12px;color:#888;margin:-8px 0 14px;">Drag the &#9776; handle to reorder. Times are optional &mdash; leave any stop blank and it'll show as "Time TBD" on the packet.</div>
+    <h2><span class="step-num">2</span>Drag into showing order &amp; enter a time for each stop</h2>
+    <div style="font-size:.78rem;color:var(--muted);margin:-6px 0 14px;">Drag the &#9776; handle to reorder. Times are optional &mdash; leave any stop blank and it'll show as "Time TBD" on the packet.</div>
     <div id="seqList"></div>
     <button class="secondary" id="addMoreBtn" type="button">+ Add more listings</button>
   </div>
 
   <div class="card" id="stepDetails" style="display:none;">
-    <h2>3. Packet details</h2>
+    <h2><span class="step-num">3</span>Packet details</h2>
     <div class="settings-row">
       <div>
         <label>Showing date</label>
@@ -148,7 +206,7 @@ PAGE = """
         <input type="text" id="clientName" placeholder="e.g. The Martinez Family">
       </div>
     </div>
-    <div class="settings-row" style="margin-top:12px;">
+    <div class="settings-row" style="margin-top:14px;">
       <div>
         <label>Prepared by / agent name</label>
         <input type="text" id="agentName">
@@ -162,23 +220,23 @@ PAGE = """
         <input type="text" id="agentEmail">
       </div>
     </div>
-    <div style="font-size:11.5px;color:#888;margin-top:8px;">
+    <div style="font-size:.78rem;color:var(--muted);margin-top:10px;">
       Building for someone else on the team? Change the name above first &mdash; e.g. Justin, Eric, or Camille. Remembered on this browser only.
     </div>
-    <label style="display:flex;align-items:center;gap:7px;margin-top:14px;font-size:12.5px;color:#444;cursor:pointer;">
+    <label style="display:flex;align-items:center;gap:7px;margin-top:16px;font-size:.82rem;color:var(--text);cursor:pointer;">
       <input type="checkbox" id="printSafeLogo" style="margin:0;">
       Print-safe logo (black &amp; white)
     </label>
-    <label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12.5px;color:#444;cursor:pointer;">
+    <label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:.82rem;color:var(--text);cursor:pointer;">
       <input type="checkbox" id="includeMap" checked style="margin:0;">
       Include route map on cover page (free OpenStreetMap geocoding &mdash; adds ~1 sec/stop)
     </label>
 
     <button class="primary" id="generateBtn" type="button">Generate Showing Packet</button>
-    <div id="genStatus" style="font-size:13px;color:#666;margin-top:10px;"></div>
+    <div id="genStatus" style="font-size:.85rem;color:var(--muted);margin-top:10px;"></div>
   </div>
 
-  <p style="text-align:center;font-size:12px;color:#888;margin-top:28px;">&copy; 2026 Brian Elmore. All rights reserved. This tool may not be reproduced or redistributed without permission.</p>
+  <p class="build-credit">&copy; 2026 Brian Elmore. All rights reserved. This tool may not be reproduced or redistributed without permission.</p>
 </div>
 
 <script>
