@@ -106,6 +106,7 @@ PAGE = """
     padding:11px 13px; border:1.5px solid var(--border-b); border-radius: var(--r); font-size:.92rem; font-family: inherit; width:100%;
   }
   .settings-row input[type=text]:focus { outline: none; border-color: var(--blue); }
+  input[type=checkbox] { accent-color: var(--red); }
   button.primary {
     display: inline-flex; align-items: center; gap: 10px; background: var(--red); color: #fff; border: none;
     padding: 13px 24px; border-radius: var(--r); font-family: inherit; font-size:.88rem; font-weight: 700;
@@ -202,8 +203,9 @@ PAGE = """
         <input type="text" id="showingDate" placeholder="e.g. Tuesday, July 8">
       </div>
       <div>
-        <label>Client / buyer name (optional, shown as packet title)</label>
+        <label>Client / buyer name</label>
         <input type="text" id="clientName" placeholder="e.g. The Martinez Family">
+        <div style="font-size:.72rem;color:var(--muted);margin-top:5px;">Optional &mdash; shown as the packet's title.</div>
       </div>
     </div>
     <div class="settings-row" style="margin-top:14px;">
