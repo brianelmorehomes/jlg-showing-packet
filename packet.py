@@ -126,28 +126,64 @@ def _strip_unit(address):
 
 
 def _city_level(address):
-    """Drop the street line, keeping just "City, ST ZIP" -- a last-resort
-    fallback for addresses on rural/newly-built roads that Nominatim's
-    free OSM data doesn't have street-level coverage for at all (observed
-    on real listings: full street address returns no match, but the bare
-    street name *also* returns no match, meaning the road itself isn't in
-    OSM's dataset for that area -- not something a smarter address query
-    can work around). A city-center pin is still far more useful on a
-    multi-stop showing route map than a stop silently vanishing from it,
-    and the map's own caption already caveats the route as approximate."""
+    """Drop the street line, keeping just "City, ST ZIP" -- a true last-
+    resort fallback for addresses on rural/newly-built roads that
+    Nominatim's free OSM data doesn't have street-level coverage for at
+    all under any query we can construct. A city-center pin is still far
+    more useful on a multi-stop showing route map than a stop silently
+    vanishing from it, and the map's own caption already caveats the
+    route as approximate -- but see `_county_level` below, which is tried
+    first and is usually able to avoid needing this at all."""
     parts = (address or "").split(",")
     if len(parts) < 2:
         return None
     return ",".join(p.strip() for p in parts[1:]).strip() or None
 
 
-def geocode_addresses(addresses, user_agent="jlg-showing-packet-app"):
+def _county_level(address, county):
+    """Swap the mailing city for the county, keeping the full street
+    address -- e.g. "6456 104th Avenue, South Haven, MI 49090" with
+    county="Allegan" becomes "6456 104th Avenue, Allegan County, MI
+    49090". Rural Michigan/Illinois addresses are routinely mailed under
+    the nearest small town's name for postal purposes even though the
+    parcel itself sits in a different township outside that town's
+    limits (observed directly on a real listing: "South Haven" is the
+    mailing city, but the property is actually in Casco Township,
+    Allegan County -- a separate place, miles from South Haven's own
+    town center). Nominatim's free-text search fails outright on the
+    mailing-city version of addresses like this because it's genuinely
+    looking in the wrong place, but the *county* is accurate (it's an
+    MLS-supplied field, not a mailing convenience) and resolving the
+    same house number against the county instead routinely finds an
+    exact street-level match. Tried before `_city_level` because it's
+    still a real address match, not an area-centroid guess."""
+    if not county or not (county or "").strip():
+        return None
+    parts = (address or "").split(",")
+    if len(parts) < 3:
+        return None
+    street = parts[0].strip()
+    state_zip = parts[-1].strip()
+    if not street or not state_zip:
+        return None
+    county_str = county.strip()
+    if not county_str.lower().endswith("county"):
+        county_str += " County"
+    return f"{street}, {county_str}, {state_zip}"
+
+
+def geocode_addresses(addresses, counties=None, user_agent="jlg-showing-packet-app"):
     """Best-effort geocode a list of full address strings (street + city/
-    state/zip) to (lat, lon). Returns a list the same length as `addresses`,
-    with None in place of any address that failed to resolve or if
-    geocoding is unavailable at all (e.g. no internet) -- callers should
-    treat every entry as optional."""
+    state/zip) to (lat, lon). `counties`, if given, is a parallel list of
+    each listing's MLS-supplied county name (or "" / None), used to build
+    a more accurate fallback query than the bare city-centroid one when
+    the mailing city and the county aren't the same place (see
+    `_county_level`). Returns a list the same length as `addresses`, with
+    None in place of any address that failed to resolve or if geocoding
+    is unavailable at all (e.g. no internet) -- callers should treat
+    every entry as optional."""
     results = [None] * len(addresses)
+    counties = counties or [None] * len(addresses)
     try:
         from geopy.geocoders import Nominatim
         from geopy.extra.rate_limiter import RateLimiter
@@ -169,6 +205,9 @@ def geocode_addresses(addresses, user_agent="jlg-showing-packet-app"):
             stripped = _strip_unit(addr)
             if stripped != addr:
                 candidates.append(stripped)
+            county_level = _county_level(stripped, counties[i] if i < len(counties) else None)
+            if county_level and county_level not in candidates:
+                candidates.append(county_level)
             city_level = _city_level(addr)
             if city_level:
                 candidates.append(city_level)
@@ -443,11 +482,14 @@ def build_packet(
             )
             flyer_paths.append(fp)
 
-        # 2. Best-effort geocode + route map.
+        # 2. Best-effort geocode + route map. Shorter for a longer stop
+        # list, so schedule + map keep fitting on one cover page together
+        # (see cover_density/map_height_for).
         map_image = None
         if include_map:
             addresses = [item["listing"].full_address for item in ordered_items]
-            points = geocode_addresses(addresses, user_agent=geocode_user_agent)
+            counties = [item["listing"].county for item in ordered_items]
+            points = geocode_addresses(addresses, counties=counties, user_agent=geocode_user_agent)
             if any(points):
                 fd, map_path = tempfile.mkstemp(suffix=".png")
                 os.close(fd)
