@@ -31,8 +31,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 FONT_DIR = os.path.join(STATIC_DIR, "fonts")
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
-LOGO_LOCKUP = os.path.join(STATIC_DIR, "logo", "jlg_atproperties_christies_lockup.png")
-LOGO_LOCKUP_BW = os.path.join(STATIC_DIR, "logo", "jlg_atproperties_christies_lockup_blackonly.png")
+JLG_BLOCK = os.path.join(STATIC_DIR, "logo", "JLG-COMBO-BLUE.png")
+BROKERAGE_LOCKUP = os.path.join(STATIC_DIR, "logo", "at-properties-christies-color.png")
+BROKERAGE_LOCKUP_BW = os.path.join(STATIC_DIR, "logo", "at-properties-christies-blackonly.png")
 PIN_FONT = os.path.join(FONT_DIR, "WorkSans-Bold-Final.ttf")
 
 NAVY = (3, 43, 66, 255)
@@ -378,7 +379,8 @@ def render_cover(
         agent_phone=agent_phone,
         agent_email=agent_email,
         font_dir=FONT_DIR,
-        logo_lockup=LOGO_LOCKUP_BW if print_safe_logo else LOGO_LOCKUP,
+        logo_jlg=JLG_BLOCK,
+        logo_brokerage=BROKERAGE_LOCKUP_BW if print_safe_logo else BROKERAGE_LOCKUP,
         map_image=map_image,
         prepared_date=prepared_date,
         footer_label=client_name or "Showing Schedule",
@@ -409,7 +411,8 @@ def render_notes(
         client_name=client_name,
         agent_name=agent_name,
         font_dir=FONT_DIR,
-        logo_lockup=LOGO_LOCKUP_BW if print_safe_logo else LOGO_LOCKUP,
+        logo_jlg=JLG_BLOCK,
+        logo_brokerage=BROKERAGE_LOCKUP_BW if print_safe_logo else BROKERAGE_LOCKUP,
         prepared_date=prepared_date,
         footer_label=client_name or "Showing Notes",
     )

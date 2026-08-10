@@ -58,7 +58,9 @@ h1, h2, h3 { margin: 0; padding: 0; }
   border-bottom: 1.4pt solid var(--broker-blue);
   margin-bottom: 16px;
 }
-.masthead img.lockup { height: 30px; display: block; }
+.masthead .lockup-group { display: flex; align-items: center; gap: 12px; }
+.masthead .lockup-group img.jlg-mark { height: 30px; display: block; }
+.masthead .lockup-group img.brokerage-mark { height: 22px; display: block; }
 .masthead .meta {
   text-align: right;
   font-size: 7.6pt;
@@ -178,7 +180,10 @@ h1, h2, h3 { margin: 0; padding: 0; }
 <body>
 
 <div class="masthead {{ density }}">
-  <img class="lockup" src="file://{{ logo_lockup }}">
+  <div class="lockup-group">
+    <img class="jlg-mark" src="file://{{ logo_jlg }}">
+    <img class="brokerage-mark" src="file://{{ logo_brokerage }}">
+  </div>
   <div class="meta">
     <div class="strong">Showing Schedule</div>
     <div>Prepared {{ prepared_date }}{% if agent_name %} by {{ agent_name }}{% endif %}</div>

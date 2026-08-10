@@ -29,7 +29,13 @@ PAGE2_TIERS = ["", "dense", "very-dense"]
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 FONT_DIR = os.path.join(STATIC_DIR, "fonts")
-LOGO_LOCKUP = os.path.join(STATIC_DIR, "logo", "jlg_atproperties_christies_lockup.png")
+# The lockup is rendered as two separate images with a CSS gap instead of one
+# flat composite -- this drops the divider bar that used to sit between the
+# JLG mark and the @properties/Christie's lockup while keeping the divider
+# @properties/Christie's requires between their own two marks intact (that
+# one is baked into the brokerage crop below, not something we control).
+JLG_BLOCK = os.path.join(STATIC_DIR, "logo", "JLG-COMBO-BLUE.png")
+BROKERAGE_LOCKUP = os.path.join(STATIC_DIR, "logo", "at-properties-christies-color.png")
 # Some printers/drivers render the brand's saturated red (@properties' "@"
 # symbol) as near-black instead of red, no matter the print quality setting
 # -- that's a printer color-management issue, not something fixable from the
@@ -38,7 +44,7 @@ LOGO_LOCKUP = os.path.join(STATIC_DIR, "logo", "jlg_atproperties_christies_locku
 # no greyscale is permitted." This all-black lockup (red channel desaturated
 # to match the surrounding black/white luminance, so anti-aliased edges stay
 # smooth) is the compliant fallback for exactly that situation.
-LOGO_LOCKUP_BW = os.path.join(STATIC_DIR, "logo", "jlg_atproperties_christies_lockup_blackonly.png")
+BROKERAGE_LOCKUP_BW = os.path.join(STATIC_DIR, "logo", "at-properties-christies-blackonly.png")
 
 STATUS_LABELS = {
     "NEW": "New Listing",
@@ -755,7 +761,8 @@ def render_flyer(
     render_kwargs = dict(
         l=listing,
         font_dir=FONT_DIR,
-        logo_lockup=LOGO_LOCKUP_BW if print_safe_logo else LOGO_LOCKUP,
+        logo_jlg=JLG_BLOCK,
+        logo_brokerage=BROKERAGE_LOCKUP_BW if print_safe_logo else BROKERAGE_LOCKUP,
         photo_path=photo_path,
         status_label=(
             "Private Listing" if is_private_listing(listing)
