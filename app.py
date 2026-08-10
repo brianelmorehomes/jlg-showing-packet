@@ -80,7 +80,7 @@ PAGE = """
 
   header.top { background: var(--blue); padding: 22px 0; }
   .top-in { max-width: 820px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; gap: 18px; }
-  .top-in img { height: 30px; width: auto; display: block; }
+  .top-in img { height: 44px; width: auto; display: block; }
   .top-title { color: rgba(255,255,255,.55); font-size: .82rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; border-left: 1px solid rgba(255,255,255,.25); padding-left: 18px; }
 
   .wrap { max-width: 820px; margin: 0 auto; padding: 40px 24px 100px; }
@@ -148,7 +148,7 @@ PAGE = """
 
   @media (max-width: 640px) {
     .top-in { padding: 0 16px; gap: 12px; }
-    .top-in img { height: 24px; }
+    .top-in img { height: 36px; }
     .top-title { font-size: .7rem; padding-left: 12px; }
     .wrap { padding: 24px 16px 64px; }
     .hero h1 { font-size: 1.4rem; }
@@ -163,7 +163,7 @@ PAGE = """
 
 <header class="top">
   <div class="top-in">
-    <img src="/static/logo/jlg-horizontal-white.svg" alt="Justin Lucas Group">
+    <img src="/static/logo/JLG-COMBO-BLUE.png" alt="Justin Lucas Group">
     <span class="top-title">Internal Tool</span>
   </div>
 </header>
