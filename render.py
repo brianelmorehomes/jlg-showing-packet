@@ -50,6 +50,7 @@ STATUS_LABELS = {
     "NEW": "New Listing",
     "ACTV": "For Sale",
     "PCH": "Price Change",
+    "PCHG": "Price Change",
     "BOM": "Back on Market",
     "CTG": "Contingent",
     "PCNG": "Pending",
@@ -58,6 +59,28 @@ STATUS_LABELS = {
     "SOLD": "Sold",
     "CLSD": "Sold",
 }
+
+# On a rental ("Residential Rental") sheet, MRED reuses several sale-style
+# status codes with a lease-specific meaning -- "CLSD"/"SOLD" means the unit
+# got *rented*, not sold, and there's no live listing to badge as "For Sale"
+# by default. These overrides apply only when the listing is a rental.
+RENTAL_STATUS_LABELS = {
+    "SOLD": "Rented",
+    "CLSD": "Rented",
+    "RNTD": "Rented",
+}
+
+
+def status_label_for(listing):
+    """Status badge text for a non-private listing -- is_private_listing()
+    callers (see render_flyer() below) still take precedence over this.
+    Rentals need their own label set since MRED reuses sale-style status
+    codes with a lease-specific meaning on a Residential Rental sheet."""
+    if listing.is_rental:
+        if listing.status in RENTAL_STATUS_LABELS:
+            return RENTAL_STATUS_LABELS[listing.status]
+        return STATUS_LABELS.get(listing.status, listing.status or "For Rent")
+    return STATUS_LABELS.get(listing.status, listing.status or "For Sale")
 
 
 def is_private_listing(listing):
@@ -766,7 +789,7 @@ def render_flyer(
         photo_path=photo_path,
         status_label=(
             "Private Listing" if is_private_listing(listing)
-            else STATUS_LABELS.get(listing.status, listing.status or "For Sale")
+            else status_label_for(listing)
         ),
         is_private=is_private_listing(listing),
         private_listing_note=private_listing_note(listing),

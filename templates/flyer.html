@@ -157,6 +157,12 @@ h1, h2, h3 { margin: 0; padding: 0; }
   color: var(--broker-blue);
   font-family: 'Playfair Display', serif;
 }
+.hero-info .amt .permo {
+  font-size: 11pt;
+  font-weight: 500;
+  font-family: 'Work Sans', sans-serif;
+  color: var(--granite);
+}
 .hero-info .type {
   font-size: 7.8pt;
   color: var(--granite);
@@ -476,8 +482,8 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
     <div class="city">{{ l.city_state_zip }}{% if l.ownership %} &nbsp;&middot;&nbsp; {{ l.ownership }}{% endif %}{% if l.county %} &nbsp;&middot;&nbsp; {{ l.county }} County{% endif %}</div>
     {% if market_time_display %}<div class="market-line">{{ market_time_display }}</div>{% endif %}
     <div class="price-row">
-      <div class="amt">{{ l.list_price }}</div>
-      <div class="type">{{ friendly_type }}{% if price_change_note %}<span class="price-note">{{ price_change_note }}</span>{% endif %}</div>
+      <div class="amt">{{ l.list_price }}{% if l.is_rental %}<span class="permo">&nbsp;/ mo</span>{% endif %}</div>
+      <div class="type">{{ friendly_type }}{% if l.is_rental %} &middot; For Rent{% endif %}{% if price_change_note %}<span class="price-note">{{ price_change_note }}</span>{% endif %}</div>
     </div>
   </div>
 </div>
@@ -569,6 +575,32 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
     </div>
   </div>
 
+  {% if l.is_rental %}
+  <div class="section-title">Lease Details &amp; Schools &amp; Pets</div>
+  <div class="card-row">
+    <div class="card">
+      <div class="c-title">Lease Details</div>
+      {% if l.security_deposit and l.security_deposit != 'None' %}<div class="c-line"><b>Deposit:</b> {{ l.security_deposit }}</div>{% endif %}
+      {% if l.lease_terms %}<div class="c-line">{{ l.lease_terms }}</div>{% endif %}
+      {% if l.available_date %}<div class="c-line">Available: {{ l.available_date }}</div>{% endif %}
+      {% if l.rent_includes %}<div class="c-line">Rent Incl: {{ l.rent_includes }}</div>{% endif %}
+    </div>
+    <div class="card">
+      <div class="c-title">Schools</div>
+      {% if l.elementary or l.junior_high or l.high_school %}
+      {% if l.elementary %}<div class="c-line">Elem: {{ l.elementary }}</div>{% endif %}
+      {% if l.junior_high %}<div class="c-line">Jr High: {{ l.junior_high }}</div>{% endif %}
+      {% if l.high_school %}<div class="c-line">High: {{ l.high_school }}</div>{% endif %}
+      {% elif l.school_district %}
+      <div class="c-line">District: {{ l.school_district }}</div>
+      {% endif %}
+    </div>
+    <div class="card">
+      <div class="c-title">Pets</div>
+      {% if pets_display %}<div class="c-line">{{ pets_display }}</div>{% else %}<div class="c-line">&mdash;</div>{% endif %}
+    </div>
+  </div>
+  {% else %}
   <div class="section-title">Assessment, Tax &amp; Schools{% if pets_display or is_condo_like %} &amp; Pets{% endif %}</div>
   <div class="card-row">
     <div class="card">
@@ -603,6 +635,7 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
     </div>
     {% endif %}
   </div>
+  {% endif %}
 
   <div class="compliance">
     <div class="top-row">
