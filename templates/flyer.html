@@ -25,8 +25,19 @@
 @page {
   size: 8.5in 11in;
   margin: 0.42in 0.55in 0.62in 0.55in;
+  /* `packet-page` is a custom counter (not the UA-reserved `page`/`pages`,
+     which WeasyPrint always starts fresh per document regardless of any
+     counter-reset -- confirmed empirically) so that a starting value set
+     via counter-reset on :first actually sticks across this document's
+     pages. This lets the footer show this page's true position in the
+     WHOLE merged packet (set by page_offset, computed in build_packet)
+     rather than a number restarting at 1 for every separately-rendered
+     piece. total_pages is a literal value for the same reason: counter
+     (pages) only knows this one document's own page count, not the
+     packet's. */
+  counter-increment: packet-page;
   @bottom-center {
-    content: "{{ l.full_address }}  \2022  Page " counter(page) " of " counter(pages);
+    content: "{{ l.full_address }}  \2022  Page " counter(packet-page) " of {{ total_pages }}";
     font-family: 'Work Sans', sans-serif;
     font-size: 6.6pt;
     color: #9a9a9c;
@@ -37,6 +48,7 @@
 }
 @page :first {
   margin-top: 0.4in;
+  counter-reset: packet-page {{ page_offset - 1 }};
 }
 
 body {

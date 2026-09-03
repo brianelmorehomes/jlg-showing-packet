@@ -25,8 +25,13 @@
 @page {
   size: 8.5in 11in;
   margin: 0.42in 0.55in 0.62in 0.55in;
+  /* See flyer.html for why this uses a custom counter + literal total
+     instead of counter(page)/counter(pages) -- this page's footer needs
+     to reflect its position in the whole merged packet, not just this
+     one-page document. */
+  counter-increment: packet-page;
   @bottom-center {
-    content: "{{ footer_label }}  \2022  Page " counter(page) " of " counter(pages);
+    content: "{{ footer_label }}  \2022  Page " counter(packet-page) " of {{ total_pages }}";
     font-family: 'Work Sans', sans-serif;
     font-size: 6.6pt;
     color: #9a9a9c;
@@ -35,7 +40,7 @@
     width: 100%;
   }
 }
-@page :first { margin-top: 0.4in; }
+@page :first { margin-top: 0.4in; counter-reset: packet-page {{ page_offset - 1 }}; }
 
 body {
   margin: 0;

@@ -688,6 +688,8 @@ def render_flyer(
     agent_email="brian@justinlucasgroup.com",
     agent_name="Brian Elmore",
     print_safe_logo=False,
+    page_offset=1,
+    total_pages=2,
 ):
     env = Environment(loader=FileSystemLoader(os.path.join(BASE_DIR, "templates")))
     template = env.get_template("flyer.html")
@@ -820,6 +822,8 @@ def render_flyer(
         price_change_note=price_change_note(listing),
         is_condo_like=(listing.ownership or "").strip().lower() in ("condo", "co-op"),
         prepared_date=datetime.date.today().strftime("%B %-d, %Y"),
+        page_offset=page_offset,
+        total_pages=total_pages,
     )
 
     # Start at the tier the old room-count heuristic would have picked --

@@ -529,6 +529,8 @@ def render_cover(
     print_safe_logo=False,
     map_image=None,
     prepared_date="",
+    page_offset=1,
+    total_pages=1,
 ):
     env = Environment(loader=FileSystemLoader(TEMPLATES_DIR))
     template = env.get_template("cover.html")
@@ -546,6 +548,8 @@ def render_cover(
         prepared_date=prepared_date,
         footer_label=client_name or "Showing Schedule",
         density=cover_density(len(rows)),
+        page_offset=page_offset,
+        total_pages=total_pages,
     )
     HTML(string=html_str, base_url=BASE_DIR).write_pdf(output_path)
     return output_path
@@ -563,6 +567,8 @@ def render_notes(
     agent_name="Brian Elmore",
     print_safe_logo=False,
     prepared_date="",
+    page_offset=1,
+    total_pages=1,
 ):
     env = Environment(loader=FileSystemLoader(TEMPLATES_DIR))
     template = env.get_template("notes.html")
@@ -576,6 +582,8 @@ def render_notes(
         logo_brokerage=BROKERAGE_LOCKUP_BW if print_safe_logo else BROKERAGE_LOCKUP,
         prepared_date=prepared_date,
         footer_label=client_name or "Showing Notes",
+        page_offset=page_offset,
+        total_pages=total_pages,
     )
     HTML(string=html_str, base_url=BASE_DIR).write_pdf(output_path)
     return output_path
@@ -630,9 +638,25 @@ def build_packet(
     order. Builds the full packet PDF at output_path."""
     tmp_paths = []
     try:
+        # Page layout of the merged packet is fixed and known up front:
+        # cover (1 page) + blank alignment page (1) + each listing's flyer
+        # (2 pages -- render_flyer's own tier-fitting loop targets this cap)
+        # + notes (1). This lets every piece's footer show its real
+        # position in the WHOLE packet ("Page 4 of 13") instead of its own
+        # local page count ("Page 1 of 2") -- see the counter-reset trick
+        # in flyer.html/cover.html/notes.html. In the rare case a flyer's
+        # tier-fitting loop can't hit the 2-page cap (see its own comment:
+        # "ship whatever we got" for exceptionally long remarks/room
+        # lists), every page number and the total from that point on will
+        # be off by however many extra pages it took -- a cosmetic
+        # footer-only discrepancy, not a build failure, and not worth a
+        # second full render pass to eliminate for how rarely it happens.
+        n_stops = len(ordered_items)
+        total_pages = 3 + 2 * n_stops
+
         # 1. Per-listing flyer PDFs, in showing order.
         flyer_paths = []
-        for item in ordered_items:
+        for i, item in enumerate(ordered_items):
             fd, fp = tempfile.mkstemp(suffix=".pdf")
             os.close(fd)
             tmp_paths.append(fp)
@@ -643,6 +667,8 @@ def build_packet(
                 agent_email=agent_email,
                 agent_name=agent_name,
                 print_safe_logo=print_safe_logo,
+                page_offset=3 + 2 * i,
+                total_pages=total_pages,
             )
             flyer_paths.append(fp)
 
@@ -726,6 +752,8 @@ def build_packet(
             print_safe_logo=print_safe_logo,
             map_image=map_image,
             prepared_date=prepared_date,
+            page_offset=1,
+            total_pages=total_pages,
         )
 
         # 4. Blank page right after the cover, for double-sided printing
@@ -747,6 +775,8 @@ def build_packet(
             agent_name=agent_name,
             print_safe_logo=print_safe_logo,
             prepared_date=prepared_date,
+            page_offset=total_pages,
+            total_pages=total_pages,
         )
 
         # 6. Merge cover + blank + flyers + notes, in order.
