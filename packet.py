@@ -35,6 +35,7 @@ import os
 import re
 import tempfile
 import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 import pdfplumber
@@ -60,7 +61,15 @@ BROKERAGE_LOCKUP_BW = os.path.join(STATIC_DIR, "logo", "at-properties-christies-
 # map, rather than the whole request getting killed. See the module
 # docstring and the comment at its call site for the incident that prompted
 # this.
-_MAP_STEP_BUDGET_SECONDS = 45
+#
+# 75s (not the original 45s) to give `build_route_map`'s own per-tile
+# timeout and retry loop (see its comment) real room to succeed on a
+# genuinely slow-but-working connection, rather than this budget being the
+# thing that gives up first on every borderline-slow map. Flyer/cover/
+# notes rendering ahead of this step is fast (a few seconds total even for
+# a dozen stops), so 75s here still leaves a solid margin under the 120s
+# worker timeout.
+_MAP_STEP_BUDGET_SECONDS = 75
 PIN_FONT = os.path.join(FONT_DIR, "WorkSans-Bold-Final.ttf")
 
 NAVY = (3, 43, 66, 255)
@@ -452,7 +461,7 @@ def _spread_coincident_points(valid):
     ]
 
 
-def build_route_map(points, out_path, width=1300, height=760):
+def build_route_map(points, out_path, width=1300, height=760, user_agent="jlg-showing-packet-app"):
     """points: ordered list of (lat, lon) or None. Draws numbered pins in
     showing order with a connecting line. Skips any stop that failed to
     geocode. Returns out_path, or None if fewer than 1 point resolved."""
@@ -463,7 +472,30 @@ def build_route_map(points, out_path, width=1300, height=760):
 
     from staticmap import StaticMap, IconMarker, Line
 
-    m = StaticMap(width, height, url_template="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png")
+    # staticmap defaults to `tile_request_timeout=None` (no timeout at all)
+    # and a generic `User-Agent: StaticMap` header -- the exact combination
+    # OpenStreetMap's tile usage policy asks apps not to do (it wants a
+    # real, identifiable User-Agent, and a huge fraction of the traffic
+    # hitting their free tile servers with the literal default "StaticMap"
+    # UA is from apps that never changed it). On a shared host like
+    # Render, a request carrying that default UA can end up throttled or
+    # just left hanging by OSM's servers -- and with no per-tile timeout,
+    # a single stalled tile blocks staticmap's internal thread pool
+    # indefinitely, which is what actually tripped the outer
+    # _MAP_STEP_BUDGET_SECONDS backstop in build_packet (see its comment)
+    # on a real packet: the map didn't fail, it just never came back, so
+    # the packet shipped without one. A real UA plus a real per-tile
+    # timeout makes tile fetches fail fast instead of hanging, so
+    # staticmap's own retry loop (3 attempts) actually gets a chance to
+    # succeed within the outer budget instead of burning all of it on one
+    # request that was never going to return.
+    m = StaticMap(
+        width,
+        height,
+        url_template="https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        tile_request_timeout=8,
+        headers={"User-Agent": user_agent},
+    )
 
     if len(valid) > 1:
         line_coords = [(lon, lat) for _, (lat, lon) in valid]
@@ -478,6 +510,10 @@ def build_route_map(points, out_path, width=1300, height=760):
         img = m.render()
         img.save(out_path)
     except Exception:
+        # Printed (not swallowed silently) so a recurring map failure shows
+        # up in Render's logs instead of just quietly shipping packets
+        # without a map with no trace of why.
+        traceback.print_exc()
         return None
     finally:
         for p in pin_paths:
@@ -699,7 +735,10 @@ def build_packet(
                 if not any(points):
                     return None
                 return build_route_map(
-                    points, map_path, height=map_height_for(len(ordered_items))
+                    points,
+                    map_path,
+                    height=map_height_for(len(ordered_items)),
+                    user_agent=geocode_user_agent,
                 )
 
             # Deliberately NOT a `with ThreadPoolExecutor(...) as pool:` --
@@ -717,8 +756,13 @@ def build_packet(
             try:
                 map_image = future.result(timeout=_MAP_STEP_BUDGET_SECONDS)
             except FutureTimeoutError:
+                # Printed rather than swallowed silently -- otherwise a
+                # packet quietly ships with no map and nothing in Render's
+                # logs explains why.
+                print(f"build_packet: map step exceeded {_MAP_STEP_BUDGET_SECONDS}s budget, shipping without a map")
                 map_image = None
             except Exception:
+                traceback.print_exc()
                 map_image = None
             finally:
                 pool.shutdown(wait=False)
