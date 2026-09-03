@@ -19,11 +19,23 @@ Building the map adds a small delay per stop (worse case if a stop falls
 through to Nominatim), and the whole thing fails soft -- if geocoding is
 unavailable (no internet, a stop's address doesn't resolve anywhere, etc.)
 the packet is still built, just without a map or without that one pin.
+
+Both the geocoding pass and the map-tile render are outside our control --
+a Nominatim rate limit (HTTP 429) or a slow/unresponsive OSM tile server
+can otherwise stall a request indefinitely. `build_packet` bounds the whole
+geocode+map step to a hard wall-clock budget (`_MAP_STEP_BUDGET_SECONDS`)
+so a bad day from either free service degrades to "packet without a map"
+instead of the request running past gunicorn's worker timeout and getting
+killed outright (which happened in production once: repeated Nominatim 429s
+plus tile fetching pushed a 5-stop packet past the timeout and the whole
+packet failed instead of just losing its map).
 """
 import io
 import os
 import re
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 import pdfplumber
 from jinja2 import Environment, FileSystemLoader
@@ -40,6 +52,15 @@ TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 JLG_BLOCK = os.path.join(STATIC_DIR, "logo", "JLG-COMBO-BLUE.png")
 BROKERAGE_LOCKUP = os.path.join(STATIC_DIR, "logo", "at-properties-christies-color.png")
 BROKERAGE_LOCKUP_BW = os.path.join(STATIC_DIR, "logo", "at-properties-christies-blackonly.png")
+
+# Hard wall-clock ceiling for "geocode all stops + render the route map" in
+# `build_packet`, in seconds. Well under gunicorn's 120s worker timeout
+# (see Dockerfile) so a slow/rate-limited external service always leaves
+# enough room to still build and return the rest of the packet without a
+# map, rather than the whole request getting killed. See the module
+# docstring and the comment at its call site for the incident that prompted
+# this.
+_MAP_STEP_BUDGET_SECONDS = 45
 PIN_FONT = os.path.join(FONT_DIR, "WorkSans-Bold-Final.ttf")
 
 NAVY = (3, 43, 66, 255)
@@ -197,7 +218,7 @@ def _nominatim_postcode(loc):
     return (loc.raw or {}).get("address", {}).get("postcode") if getattr(loc, "raw", None) else None
 
 
-def _census_geocode_one(address, timeout=10):
+def _census_geocode_one(address, timeout=6):
     """Look up a single address against the US Census Bureau's free
     geocoder (TIGER/Line-based, no API key or billing account required --
     same "no signup" bar as Nominatim). Tried *before* Nominatim for every
@@ -294,11 +315,31 @@ def geocode_addresses(addresses, counties=None, user_agent="jlg-showing-packet-a
         # timeout plus a couple of retries (geopy retries with backoff)
         # absorbs that without giving up on a stop over a slow first
         # connection.
-        geolocator = Nominatim(user_agent=user_agent, timeout=15)
-        geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1, max_retries=2, error_wait_seconds=2.0, swallow_exceptions=True)
+        # max_retries/error_wait are intentionally light: a 429 (rate limited)
+        # response from Nominatim almost never clears within the same
+        # request's lifetime, so retrying it hard just burns wall-clock time
+        # that counts against the outer deadline below without improving the
+        # odds of success. One quick retry is enough to absorb a genuine
+        # transient blip (a dropped connection, a slow DNS lookup) without
+        # turning a real rate-limit into a multi-second stall per candidate.
+        geolocator = Nominatim(user_agent=user_agent, timeout=8)
+        geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1, max_retries=1, error_wait_seconds=1.0, swallow_exceptions=True)
+
+        # Hard deadline for the whole batch (all addresses, both providers,
+        # every fallback candidate). Once we're past it we stop attempting
+        # further Nominatim fallbacks and just return whatever resolved so
+        # far -- a partial map (or none) beats stalling the request. This is
+        # deliberately generous relative to `_MAP_STEP_BUDGET_SECONDS` in
+        # `build_packet`, which is the real backstop; this one just avoids
+        # spending the *entire* budget on geocoding and leaving nothing for
+        # the actual tile render.
+        deadline = time.monotonic() + 25
+
         for i, addr in enumerate(addresses):
             if not addr:
                 continue
+            if time.monotonic() > deadline:
+                break
             expected_zip = _expected_zip(addr)
 
             # Try the US Census geocoder first (see _census_geocode_one) --
@@ -318,6 +359,9 @@ def geocode_addresses(addresses, counties=None, user_agent="jlg-showing-packet-a
             if census_hit:
                 continue
 
+            if time.monotonic() > deadline:
+                break
+
             candidates = [addr]
             if stripped != addr:
                 candidates.append(stripped)
@@ -328,6 +372,8 @@ def geocode_addresses(addresses, counties=None, user_agent="jlg-showing-packet-a
             if city_level:
                 candidates.append(city_level)
             for candidate in candidates:
+                if time.monotonic() > deadline:
+                    break
                 try:
                     loc = geocode(candidate, addressdetails=True)
                 except Exception:
@@ -603,18 +649,53 @@ def build_packet(
         # 2. Best-effort geocode + route map. Shorter for a longer stop
         # list, so schedule + map keep fitting on one cover page together
         # (see cover_density/map_height_for).
+        #
+        # Run geocoding + tile rendering on a hard wall-clock budget. Both
+        # steps depend on free third-party services (Nominatim, the Census
+        # geocoder, OSM tile servers) that are outside our control -- a
+        # rate limit or a slow tile server can otherwise stall this step
+        # for minutes, well past gunicorn's worker timeout, which kills the
+        # whole request (and the whole packet, map or no map) rather than
+        # just losing the map. `geocode_addresses` has its own internal
+        # 25s deadline, but the tile render (`build_route_map`) doesn't --
+        # this outer timeout is the actual backstop. If it trips, we
+        # proceed without a map exactly as if geocoding had failed outright.
         map_image = None
         if include_map:
             addresses = [item["listing"].full_address for item in ordered_items]
             counties = [item["listing"].county for item in ordered_items]
-            points = geocode_addresses(addresses, counties=counties, user_agent=geocode_user_agent)
-            if any(points):
-                fd, map_path = tempfile.mkstemp(suffix=".png")
-                os.close(fd)
-                tmp_paths.append(map_path)
-                map_image = build_route_map(
+            fd, map_path = tempfile.mkstemp(suffix=".png")
+            os.close(fd)
+            tmp_paths.append(map_path)
+
+            def _geocode_and_map():
+                points = geocode_addresses(addresses, counties=counties, user_agent=geocode_user_agent)
+                if not any(points):
+                    return None
+                return build_route_map(
                     points, map_path, height=map_height_for(len(ordered_items))
                 )
+
+            # Deliberately NOT a `with ThreadPoolExecutor(...) as pool:` --
+            # the context manager's __exit__ calls shutdown(wait=True),
+            # which blocks until the submitted task finishes even if we've
+            # already given up on it via future.result(timeout=...). That
+            # would silently defeat this entire timeout (verified directly:
+            # a stuck tile fetch made this hang indefinitely with the
+            # `with` form). Calling shutdown(wait=False) below lets us
+            # return immediately; the stray thread is abandoned to finish
+            # or die on its own, which is an acceptable trade for a
+            # low-traffic internal tool where this should be a rare event.
+            pool = ThreadPoolExecutor(max_workers=1)
+            future = pool.submit(_geocode_and_map)
+            try:
+                map_image = future.result(timeout=_MAP_STEP_BUDGET_SECONDS)
+            except FutureTimeoutError:
+                map_image = None
+            except Exception:
+                map_image = None
+            finally:
+                pool.shutdown(wait=False)
 
         # 3. Cover page.
         rows = []
