@@ -5,14 +5,20 @@ Takes a set of already-parsed MLS Listings plus a showing order and times,
 and produces one merged, branded PDF: a cover page (ordered schedule +
 route map) followed by each listing's full branded flyer, in showing order.
 
-Geocoding uses OpenStreetMap's free Nominatim service (no API key, no
-billing account -- matches the rest of this project's "no external service
-signup required" philosophy). It's rate-limited to 1 request/second per
-Nominatim's usage policy, so building the map adds roughly 1 second per
-stop; for a typical showing day (a handful of stops) that's a few seconds,
-and it fails soft -- if geocoding is unavailable (no internet, a stop's
-address doesn't resolve, etc.) the packet is still built, just without a
-map or without that one pin.
+Geocoding tries two free services, in order, neither requiring an API key
+or billing account (matches the rest of this project's "no external
+service signup required" philosophy): the US Census Bureau's geocoder
+first (authoritative TIGER/Line address ranges -- the more reliable of the
+two for rural numbered-grid roads), then OpenStreetMap's Nominatim as a
+fallback for addresses Census doesn't have (rate-limited to 1 request/
+second per Nominatim's usage policy). Every result from either service is
+checked against the listing's own ZIP before being accepted -- both
+services' free-text matching can otherwise return a confidently-wrong
+result in a neighboring county for these addresses (see `_zip_ok`).
+Building the map adds a small delay per stop (worse case if a stop falls
+through to Nominatim), and the whole thing fails soft -- if geocoding is
+unavailable (no internet, a stop's address doesn't resolve anywhere, etc.)
+the packet is still built, just without a map or without that one pin.
 """
 import io
 import os
@@ -141,6 +147,97 @@ def _city_level(address):
     return ",".join(p.strip() for p in parts[1:]).strip() or None
 
 
+_ZIP_RE = re.compile(r"(\d{5})(?:-\d{4})?\s*$")
+
+
+def _expected_zip(address):
+    """Pull the 5-digit ZIP off the end of an "..., ST ZIP" address string,
+    so a geocode result can be sanity-checked against it (see
+    `_zip_matches`). Every candidate query built below (full address,
+    county-swap, city-level) keeps the original ZIP in the tail, so this is
+    computed once per stop and reused across all of that stop's candidates.
+    Anchored to the end of the last comma-separated segment rather than a
+    bare "first 5-digit number found" search -- a 5-digit house number
+    (rare, but not impossible) would otherwise be misread as the ZIP."""
+    if not address:
+        return None
+    last_part = address.split(",")[-1]
+    m = _ZIP_RE.search(last_part.strip())
+    return m.group(1) if m else None
+
+
+def _zip_ok(postcode, expected_zip):
+    """Nominatim's free-text search is not a hard database lookup -- it's a
+    fuzzy match over whatever OSM data exists, and for rural Michigan
+    numbered-grid roads ("68th Street", "116th Avenue", etc.) that same
+    road name and house number routinely exists in more than one county.
+    Observed directly on a real showing packet: "2313 68th Street,
+    Allegan County, MI 49408" -- county named explicitly in the query --
+    still matched a completely different "2313 68th Street" 30+ miles
+    south in Van Buren County (ZIP 49090), because Nominatim treats the
+    county/ZIP text as ranking hints, not a strict filter, and there was
+    apparently no better-covered OSM data for the correct Allegan County
+    address. A pin that's precise-looking but in the wrong county is worse
+    than an honest, coarser city-center pin, so every match (from either
+    geocoding provider -- see `_census_geocode_one` below) is checked
+    against the ZIP we already know is correct (MLS-supplied) before it's
+    accepted -- a mismatch is treated the same as no match at all, which
+    lets the candidate loop fall through to the next (coarser) query
+    instead of confidently plotting the wrong location."""
+    if not expected_zip:
+        return True
+    if not postcode:
+        # No postcode on the result to check -- don't reject a match we
+        # can't actually verify, that would throw away otherwise-good hits.
+        return True
+    return postcode[:5] == expected_zip
+
+
+def _nominatim_postcode(loc):
+    return (loc.raw or {}).get("address", {}).get("postcode") if getattr(loc, "raw", None) else None
+
+
+def _census_geocode_one(address, timeout=10):
+    """Look up a single address against the US Census Bureau's free
+    geocoder (TIGER/Line-based, no API key or billing account required --
+    same "no signup" bar as Nominatim). Tried *before* Nominatim for every
+    stop: it resolved every rural numbered-grid address in the real-world
+    case that exposed this whole geocoding problem (Nominatim returned zero
+    results at all for 3 of 5 stops on that showing route), because it's
+    matching against the Census's own authoritative address-range dataset
+    rather than fuzzy-searching community-contributed OSM text. It isn't a
+    strict superset of Nominatim's coverage, though -- one stop on that same
+    real route (a Douglas, MI address) had no Census match at all but
+    geocoded correctly on Nominatim's very first try -- so this is a first
+    attempt, not a replacement; `geocode_addresses` still falls through to
+    the full Nominatim candidate chain if this returns nothing (or fails
+    zip validation). Returns (lat, lon, postcode) or None; every failure
+    mode (network, timeout, malformed response, no match) is swallowed so a
+    single stop's lookup can't abort the whole route's geocoding."""
+    import json
+    import urllib.parse
+    import urllib.request
+
+    try:
+        params = {"address": address, "benchmark": "Public_AR_Current", "format": "json"}
+        url = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?" + urllib.parse.urlencode(params)
+        req = urllib.request.Request(url, headers={"User-Agent": "jlg-showing-packet-app"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        matches = data.get("result", {}).get("addressMatches") or []
+        if not matches:
+            return None
+        m = matches[0]
+        coords = m.get("coordinates") or {}
+        lat, lon = coords.get("y"), coords.get("x")
+        if lat is None or lon is None:
+            return None
+        postcode = (m.get("addressComponents") or {}).get("zip")
+        return (float(lat), float(lon), postcode)
+    except Exception:
+        return None
+
+
 def _county_level(address, county):
     """Swap the mailing city for the county, keeping the full street
     address -- e.g. "6456 104th Avenue, South Haven, MI 49090" with
@@ -202,8 +299,26 @@ def geocode_addresses(addresses, counties=None, user_agent="jlg-showing-packet-a
         for i, addr in enumerate(addresses):
             if not addr:
                 continue
-            candidates = [addr]
+            expected_zip = _expected_zip(addr)
+
+            # Try the US Census geocoder first (see _census_geocode_one) --
+            # it's the more reliable of the two for these addresses, but
+            # doesn't cover everything Nominatim does, so this is a first
+            # attempt rather than a replacement for the chain below.
             stripped = _strip_unit(addr)
+            census_hit = False
+            for census_candidate in ([addr, stripped] if stripped != addr else [addr]):
+                census = _census_geocode_one(census_candidate)
+                if census:
+                    lat, lon, postcode = census
+                    if _zip_ok(postcode, expected_zip):
+                        results[i] = (lat, lon)
+                        census_hit = True
+                        break
+            if census_hit:
+                continue
+
+            candidates = [addr]
             if stripped != addr:
                 candidates.append(stripped)
             county_level = _county_level(stripped, counties[i] if i < len(counties) else None)
@@ -214,10 +329,10 @@ def geocode_addresses(addresses, counties=None, user_agent="jlg-showing-packet-a
                 candidates.append(city_level)
             for candidate in candidates:
                 try:
-                    loc = geocode(candidate)
+                    loc = geocode(candidate, addressdetails=True)
                 except Exception:
                     loc = None
-                if loc:
+                if loc and _zip_ok(_nominatim_postcode(loc), expected_zip):
                     results[i] = (loc.latitude, loc.longitude)
                     break
     except Exception:
