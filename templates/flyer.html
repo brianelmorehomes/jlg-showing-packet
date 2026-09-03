@@ -348,6 +348,19 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
 .rooms-compact.dense .rooms-compact-item { font-size: 8pt; padding: 2.6px 6px; }
 .rooms-compact.very-dense .rooms-compact-item { font-size: 7.6pt; padding: 2px 5px; }
 
+/* Shown in place of the Room Dimensions table when the MLS sheet simply
+   never had a room-by-room breakdown filled in (a common, agent-side-optional
+   field -- not something this tool is choosing to leave out). Making that
+   explicit here matters: a client comparing this flyer to another agent's
+   packet for the same listing could otherwise read a missing section as the
+   listing agent hiding something, rather than a data gap on MRED's end. */
+.no-room-data {
+  font-size: 8.3pt;
+  font-style: italic;
+  color: var(--granite);
+  padding: 2px 0 4px;
+}
+
 .two-col { display: flex; gap: 22px; }
 .two-col .col { flex: 1; }
 
@@ -532,9 +545,15 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
     <span>MLS #{{ l.mls_number }}</span>
   </div>
 
-  {% if l.rooms %}
   <div class="section-title">Room Dimensions</div>
-  {% if rooms_use_compact %}
+  {% if not l.rooms %}
+  <!-- Room-by-room dimensions are an optional MRED field -- plenty of
+       listing agents never fill it in, especially on smaller/older homes.
+       Omitting this section entirely in that case reads, to a client
+       comparing flyers, as if it were left out on purpose; naming the data
+       gap directly avoids that impression. -->
+  <div class="no-room-data">Room-by-room dimensions were not provided in the MLS listing.</div>
+  {% elif rooms_use_compact %}
   <!-- No room in this listing has any size/flooring data (the common
        case for MichRIC sheets, which typically only carry room name +
        level) -- the 4-column table below would waste roughly half its
@@ -562,7 +581,6 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
     </tr>
     {% endfor %}
   </table>
-  {% endif %}
   {% endif %}
 
   <div class="section-title">Property Features</div>
