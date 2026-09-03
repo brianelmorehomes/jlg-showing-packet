@@ -16,6 +16,9 @@
   --granite: #404042;
   --white: #ffffff;
   --hairline: #d8dcde;
+  /* See flyer.html for why this replaced #9a9a9c/#78797b (2.8:1/4.4:1
+     contrast) -- too low to print reliably at these small sizes. */
+  --muted: #6b6b6d;
 }
 
 * { box-sizing: border-box; }
@@ -32,9 +35,9 @@
     content: "{{ footer_label }}  \2022  Page " counter(packet-page) " of {{ total_pages }}";
     font-family: 'Work Sans', sans-serif;
     font-size: 6.6pt;
-    color: #9a9a9c;
+    color: var(--muted);
     padding-top: 6px;
-    border-top: 0.6pt solid #d8dcde;
+    border-top: 0.75pt solid #d8dcde;
     width: 100%;
   }
 }
@@ -117,11 +120,11 @@ h1, h2, h3 { margin: 0; padding: 0; }
 }
 .note-head .addr { flex: 1; min-width: 0; }
 .note-head .addr .line1 { font-weight: 600; font-size: 9.8pt; color: var(--granite); }
-.note-head .addr .line2 { font-size: 7.8pt; color: #78797b; margin-top: 1px; }
+.note-head .addr .line2 { font-size: 7.8pt; color: var(--muted); margin-top: 1px; }
 .note-head .time { font-size: 8.4pt; color: var(--broker-blue); font-weight: 600; }
 .note-lines { padding: 10px 12px 4px; }
 .note-lines .rule {
-  border-bottom: 0.7pt solid var(--hairline);
+  border-bottom: 0.75pt solid var(--hairline);
   height: 20px;
 }
 </style>

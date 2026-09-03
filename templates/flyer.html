@@ -18,6 +18,14 @@
   --granite: #404042;
   --white: #ffffff;
   --hairline: #d8dcde;
+  /* Single "muted/secondary text" grey, chosen for print reliability
+     rather than screen appearance: ~5.3:1 contrast against white, well
+     above the ~4.5:1 floor recommended once text drops under ~8pt. The
+     previous palette had three near-identical lighter greys (#9a9a9c,
+     #8b8b8d, #78797b) doing this same job at 2.8-4.4:1 contrast -- fine
+     on a backlit screen, but exactly the values that thin out or vanish
+     on a printer running low on toner or on off-white/matte paper. */
+  --muted: #6b6b6d;
 }
 
 * { box-sizing: border-box; }
@@ -40,9 +48,9 @@
     content: "{{ l.full_address }}  \2022  Page " counter(packet-page) " of {{ total_pages }}";
     font-family: 'Work Sans', sans-serif;
     font-size: 6.6pt;
-    color: #9a9a9c;
+    color: var(--muted);
     padding-top: 6px;
-    border-top: 0.6pt solid #d8dcde;
+    border-top: 0.75pt solid #d8dcde;
     width: 100%;
   }
 }
@@ -152,7 +160,7 @@ h1, h2, h3 { margin: 0; padding: 0; }
 }
 .hero-info .market-line {
   font-size: 8pt;
-  color: #6b6b6d;
+  color: var(--muted);
   margin-top: 3px;
 }
 .hero-info .price-row {
@@ -283,7 +291,7 @@ h1, h2, h3 { margin: 0; padding: 0; }
 .directions {
   margin-top: 10px;
   font-size: 8.2pt;
-  color: #6b6b6d;
+  color: var(--muted);
 }
 .directions.condensed, .directions.tight, .directions.very-tight { margin-top: 6px; font-size: 7.6pt; }
 .directions b { color: var(--granite); }
@@ -323,7 +331,7 @@ table.rooms th {
 }
 table.rooms td {
   padding: 4px 6px;
-  border-bottom: 0.6pt solid var(--hairline);
+  border-bottom: 0.75pt solid var(--hairline);
 }
 table.rooms.dense td { padding: 2.6px 6px; }
 table.rooms.very-dense td { padding: 2px 5px; }
@@ -346,13 +354,13 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
   gap: 6px;
   font-size: 8.6pt;
   padding: 3.5px 6px;
-  border-bottom: 0.6pt solid var(--hairline);
+  border-bottom: 0.75pt solid var(--hairline);
 }
 .rooms-compact-item:nth-child(even) { background: #fafafa; }
 .rooms-compact-item .rn { color: var(--granite); }
 .rooms-compact-item .rl {
   flex-shrink: 0;
-  color: #8b8b8d;
+  color: var(--muted);
   font-size: 7.3pt;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -475,9 +483,12 @@ table.rooms tr:nth-child(even) td { background: #fafafa; }
 }
 .compliance .agent-line .sub { font-weight: 400; color: var(--granite); font-size: 7.6pt; }
 .compliance .legal {
-  font-size: 6.4pt;
+  /* Bumped from 6.4pt and lightened less than the old #8b8b8d (3.4:1
+     contrast) -- this is the MLS/Fair Housing attribution text, which
+     should stay legible regardless of printer/toner/paper. */
+  font-size: 6.8pt;
   line-height: 1.5;
-  color: #8b8b8d;
+  color: var(--muted);
 }
 </style>
 </head>
