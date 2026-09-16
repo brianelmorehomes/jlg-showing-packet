@@ -714,31 +714,45 @@ def render_flyer(
         # the hero photo box shows just the real photo, scaled/cropped
         # sensibly by `background-size: cover` instead of a tiny image
         # framed in black.
+        #
+        # A column/row is judged "bar" by what FRACTION of its sampled
+        # pixels are near-black, not by mean+variance across the whole
+        # column. The original variance-based check broke on real photos
+        # where a thin foreground object (a tree branch, an antenna, a
+        # fence post) crosses into the black bar at even one sampled row --
+        # that single bright/varied sample spiked the column's variance
+        # past the threshold and stopped the crop scan almost immediately,
+        # leaving most of the bar in place (seen on a Home Platform photo
+        # in the sibling jlg-listing-flyer app, where a tree branch at x=5
+        # halted a ~45px-wide left bar after only 5px). Requiring a high
+        # dark-pixel majority (92%) instead of low variance tolerates that
+        # kind of small intrusion while still rejecting genuinely
+        # detailed/bright regions.
         try:
             from PIL import Image
 
-            def _autocrop_black_bars(im, thresh=12, max_std=6):
+            def _autocrop_black_bars(im, thresh=12, dark_frac=0.92):
                 im = im.convert("RGB")
                 w, h = im.size
                 px = im.load()
 
                 def col_is_bar(x):
-                    vals = [px[x, y] for y in range(0, h, max(1, h // 50))]
-                    means = [sum(v) / 3 for v in vals]
-                    avg = sum(means) / len(means)
-                    if avg > thresh:
-                        return False
-                    var = sum((m - avg) ** 2 for m in means) / len(means)
-                    return var ** 0.5 <= max_std
+                    total = dark = 0
+                    for y in range(0, h, max(1, h // 100)):
+                        r, g, b = px[x, y]
+                        total += 1
+                        if (r + g + b) / 3 <= thresh:
+                            dark += 1
+                    return total > 0 and dark / total >= dark_frac
 
                 def row_is_bar(y):
-                    vals = [px[x, y] for x in range(0, w, max(1, w // 50))]
-                    means = [sum(v) / 3 for v in vals]
-                    avg = sum(means) / len(means)
-                    if avg > thresh:
-                        return False
-                    var = sum((m - avg) ** 2 for m in means) / len(means)
-                    return var ** 0.5 <= max_std
+                    total = dark = 0
+                    for x in range(0, w, max(1, w // 100)):
+                        r, g, b = px[x, y]
+                        total += 1
+                        if (r + g + b) / 3 <= thresh:
+                            dark += 1
+                    return total > 0 and dark / total >= dark_frac
 
                 left = 0
                 while left < w // 2 and col_is_bar(left):
