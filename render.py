@@ -698,6 +698,8 @@ def render_flyer(
     agent_email="brian@justinlucasgroup.com",
     agent_name="Brian Elmore",
     print_safe_logo=False,
+    page_offset=1,
+    total_pages=2,
 ):
     env = Environment(loader=FileSystemLoader(os.path.join(BASE_DIR, "templates")))
     template = env.get_template("flyer.html")
@@ -731,10 +733,11 @@ def render_flyer(
         # that single bright/varied sample spiked the column's variance
         # past the threshold and stopped the crop scan almost immediately,
         # leaving most of the bar in place (seen on a Home Platform photo
-        # where a tree branch at x=5 halted a ~45px-wide left bar after
-        # only 5px). Requiring a high dark-pixel majority (92%) instead of
-        # low variance tolerates that kind of small intrusion while still
-        # rejecting genuinely detailed/bright regions.
+        # in the sibling jlg-listing-flyer app, where a tree branch at x=5
+        # halted a ~45px-wide left bar after only 5px). Requiring a high
+        # dark-pixel majority (92%) instead of low variance tolerates that
+        # kind of small intrusion while still rejecting genuinely
+        # detailed/bright regions.
         try:
             from PIL import Image
 
@@ -843,6 +846,8 @@ def render_flyer(
         price_change_note=price_change_note(listing),
         is_condo_like=(listing.ownership or "").strip().lower() in ("condo", "co-op"),
         prepared_date=datetime.date.today().strftime("%B %-d, %Y"),
+        page_offset=page_offset,
+        total_pages=total_pages,
     )
 
     # Start at the tier the old room-count heuristic would have picked --
