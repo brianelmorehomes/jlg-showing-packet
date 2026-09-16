@@ -1,18 +1,16 @@
 """
 New Home Platform listing sheet parser ("single_listing_print" export).
 --------------------------------------------------------------------------
-Ported from the sibling jlg-listing-flyer app (Sept 2026), where this was
-built and verified against real examples first -- see that app's
-DEV_NOTES.md for the full design rationale. Brian's brokerage is
-transitioning to a new listing platform (its disclaimer footer names
-"Compass International Holdings" -- see is_new_platform() below) whose
-print sheet is a completely different physical document from both
-MRED's classic "Full Report" (parser.py) and MichRIC's "New Full Detail
-Report" (parser_michric.py). It's also MLS-agnostic: the same sheet
-layout is produced whether the underlying listing lives in MRED
-(Illinois) or MichRIC (Michigan) -- confirmed directly against real
-samples of both -- so this one module handles both, rather than needing
-its own MRED/MichRIC split the way the classic sheets do.
+Brian's brokerage is transitioning to a new listing platform (its
+disclaimer footer names "Compass International Holdings" -- see
+is_new_platform() below) whose print sheet is a completely different
+physical document from both MRED's classic "Full Report" (parser.py) and
+MichRIC's "New Full Detail Report" (parser_michric.py). It's also MLS-
+agnostic: the same sheet layout is produced whether the underlying
+listing lives in MRED (Illinois) or MichRIC (Michigan) -- confirmed
+directly against real samples of both -- so this one module handles
+both, rather than needing its own MRED/MichRIC split the way the classic
+sheets do.
 
 Two real differences from the classic sheets that matter for callers:
 
@@ -20,39 +18,29 @@ Two real differences from the classic sheets that matter for callers:
    (sometimes both concatenated into one multi-page file, sometimes just
    one). The Agent flavor adds a few extra Key Details rows (PRKG, FEES,
    bare Beds/Baths) and an internal-only Listing Contacts/Agent Remarks/
-   Showing Instructions block -- none of which this packet needs (the
-   internal fields are already stripped from every other source's
-   flyer/packet too), and the extra Key Details rows just duplicate data
-   the Client flavor already has elsewhere on the sheet (Property
-   History/Details, the header banner). So Client-only input works fine
-   and is preferred when present; Agent-only input parses just as well
-   since the grid extraction below is driven by font weight, not a
-   fixed field list -- an unrecognized bold label is just a dict key
-   nothing ever looks up.
+   Showing Instructions block -- none of which this flyer needs (the
+   internal fields are already stripped from every other source's flyer
+   too), and the extra Key Details rows just duplicate data the Client
+   flavor already has elsewhere on the sheet (Property History/Details,
+   the header banner). So Client-only input works fine and is preferred
+   when present; Agent-only input parses just as well since the grid
+   extraction below is driven by font weight, not a fixed field list --
+   an unrecognized bold label is just a dict key nothing ever looks up.
 
 2. This sheet has meaningfully LESS data than a MichRIC full-detail
    report: no room dimensions table, no categorized interior/exterior/
    construction feature grid, no water source/sewer, no heating type
    breakdown, no basement finish detail, no fireplace detail, and no
    County field at all (MRED/MichRIC's classic sheets both carry County
-   directly). Packets built from this source will legitimately have
-   more blank/placeholder cards than one built from a classic MRED or
-   MichRIC sheet -- that's an honest reflection of what this source
-   actually contains, not a parsing bug.
-
-   **The missing County field is a real, unresolved gap for this app
-   specifically** (more so than for jlg-listing-flyer, which doesn't do
-   route-map geocoding at all): packet.py's `_county_level()` rural-
-   address geocoding fallback (added to fix 6456 104th Avenue mapping to
-   the wrong county/town) relies on `listing.county` being populated. A
-   Home Platform-sourced stop with a USPS mailing-city that doesn't
-   match its real township will fall through to the (wrong) city-
-   centroid pin with no county-level fallback available, the exact
-   failure mode that fix was built to prevent. If a showing packet stop
-   sourced from this platform ever lands a mislocated pin, this is why
-   -- there's no field on this sheet to fall back to. A future fix would
-   need a different fallback signal entirely (e.g. reverse-geocoding the
-   ZIP, or accepting a manual county override in the app).
+   directly). Flyers built from this source will legitimately have more
+   blank/placeholder cards than one built from a classic MRED or MichRIC
+   sheet -- that's an honest reflection of what this source actually
+   contains, not a parsing bug. The missing County field specifically
+   means jlg-showing-packet's route-map geocoding (packet.py's
+   _county_level() rural-address fallback) has nothing to fall back on
+   for listings parsed from this source -- worth knowing if a showing
+   packet stop sourced this way ever lands a mislocated pin the way
+   6456 104th Avenue did before that fix.
 
 Detection and extraction approach
 ----------------------------------
@@ -320,7 +308,7 @@ def _parse_banner(page1_text):
 # Schools (name + grade range + "Serves this home"/"Nearby school"/
 # "Choice school" + rating -- richer than MRED/MichRIC's bare district
 # code, but needs bucketing into the shared elementary/junior_high/
-# high_school fields the template already expects).
+# high_school fields the flyer template already expects).
 # ---------------------------------------------------------------------------
 
 _SCHOOL_LINE_RE = re.compile(
@@ -335,8 +323,8 @@ def _parse_schools(lines):
     """Only schools flagged "Serves this home" are this property's actual
     assigned schools -- "Nearby school"/"Choice school" entries are other
     options in the area, not what the address is zoned for, so those are
-    left out of the Elementary/Middle/High fields entirely rather than
-    risk implying they're assigned."""
+    left out of the flyer's Elementary/Middle/High fields entirely rather
+    than risk implying they're assigned."""
     elem = mid = high = ""
     for line in lines:
         line = line.strip()
@@ -416,7 +404,7 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         kinds = [_page_kind(t) for t in page_texts]
 
         # Prefer the Client flavor when present (simpler, and everything
-        # this packet needs is already there -- see module docstring);
+        # this flyer needs is already there -- see module docstring);
         # fall back to Agent-only input if that's all that was uploaded.
         if "client" in kinds:
             use_idx = [i for i, k in enumerate(kinds) if k == "client"]
@@ -446,6 +434,17 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         for i in use_idx:
             page = pdf.pages[i]
             words = page.extract_words(extra_attrs=["fontname", "size"])
+            # Drop fine-print words (the compliance disclaimer paragraph
+            # renders at ~5.0pt, vs. ~7.0pt for every real label/value/
+            # description/amenities word and ~7.5-8.0pt for headers,
+            # confirmed directly on real samples -- see module docstring's
+            # "7.0pt body" convention). Without this, a section with
+            # nothing else below it on the page (Amenities in particular,
+            # which sits last before the disclaimer block on every real
+            # sample seen) has no next-header boundary to stop at and
+            # _text_section() swallows the entire multi-hundred-word
+            # disclaimer paragraph into that section's value.
+            words = [w for w in words if w.get("size", 0) >= 6.0]
             headers = _section_headers(words)
             bottom = page.height
 
@@ -539,13 +538,60 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     lot = _lot_size_from(propdetails)
     if lot:
         listing.lot_size = lot
+    # `listing.stories` (stories in the home itself, paired with Basement/
+    # Fireplaces on the facts strip) vs. `listing.total_stories` (a condo
+    # BUILDING's floor count, paired with Total Units/Unit Floor Level) is
+    # a real distinction the shared Listing model and flyer.html template
+    # already draw for classic MRED (see parser.py's own "Type
+    # Detached/Attached: 2 Stories" -> listing.stories vs. "# Stories:" ->
+    # listing.total_stories, with the latter's own comment noting it's
+    # "especially relevant for condos/co-ops"). This sheet's "Total
+    # Stories" field is the former, not the latter -- confirmed by Red Oak
+    # Dr, a single-family Ranch, populating it directly with no Total
+    # Units/Unit Floor Level fields anywhere on the sheet. Mapping it to
+    # `total_stories` was wrong: flyer.html's facts-strip-secondary picks
+    # its whole second row based on whether ANY of total_units/
+    # total_stories/unit_floor_level is set, so a populated total_stories
+    # on a non-condo listing silently swapped Basement/Fireplaces out for
+    # a Total Units/Unit Floor row that's always blank for this source.
     stories = propdetails.get("Total Stories", "")
     if stories and not _is_nullish(stories):
-        listing.total_stories = stories
+        listing.stories = stories
+    else:
+        # Property Details' own "Total Stories" comes back blank ("-") on
+        # every MRED-sourced sample seen so far -- but MRED-sourced
+        # listings put the story count in Key Details' "MLS Prop Type 2"
+        # instead, as free text like "2 Stories" (this mirrors the
+        # classic MRED sheet's own "Type Detached/Attached: 2 Stories"
+        # field, which is exactly what this fallback is patterned after).
+        # MichRIC-sourced listings do the reverse: Total Stories is
+        # populated directly (the branch above), and MLS Prop Type 2
+        # holds a property-type string instead ("Single Family
+        # Residence") that this regex simply won't match -- confirmed on
+        # real samples of both, so this fallback only ever fires when
+        # it's actually needed.
+        m = re.search(r"(\d+(?:\.\d+)?)\s*Stor", details.get("MLS Prop Type 2", ""), re.IGNORECASE)
+        if m:
+            listing.stories = m.group(1)
 
     # --- Amenities / Description / Schools -----------------------------------
     if amenities_text:
         listing.amenities = amenities_text
+        # This sheet has no dedicated Basement field -- it only ever shows
+        # up as a token inside the Amenities list, either bare
+        # ("Basement") or with a finish/size qualifier ("Full Basement"),
+        # confirmed on real samples of both -- so a substring match (not
+        # exact) is needed to catch the qualified form. Use the fuller
+        # token as the display value when there is one (matches the
+        # richer "Full"/"Finished" values basement_display() already
+        # shows for classic MRED listings); fall back to a plain "Yes"
+        # for the bare form, since that's all the sheet tells us.
+        basement_item = next(
+            (t.strip() for t in amenities_text.split(",") if "basement" in t.lower()),
+            None,
+        )
+        if basement_item:
+            listing.basement = "Yes" if basement_item.lower() == "basement" else basement_item
     if description:
         listing.remarks = description
     if schools_lines:
