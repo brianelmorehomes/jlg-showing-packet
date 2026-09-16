@@ -220,6 +220,19 @@ class Listing:
                                  # whether parking is included, not what it
                                  # costs if it isn't). See render.py's
                                  # parking_note().
+    parking_ownership: str = ""  # MRED "Parking Ownership:" -- the exterior/
+                                  # surface-space equivalent of Garage
+                                  # Ownership above, e.g. "Fee/Leased ($250)"
+                                  # on a rental. Same significance: a real
+                                  # cost parking_incl_in_price alone doesn't
+                                  # convey. See render.py's parking_note().
+    parking_details: str = ""  # MRED "Parking Details:" -- e.g. "Assigned
+                                # Spaces, Underground/Covered". The exterior/
+                                # surface-space equivalent of Garage Details;
+                                # only one of the two is ever populated on a
+                                # given sheet depending on whether the spot
+                                # is a garage or not. See render.py's
+                                # feature_groups().
     parking_incl_in_price: str = ""
     lot_size: str = ""
 
@@ -924,7 +937,7 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         listing.remarks = remarks
 
     # --- Features: 3-column grid (Age/Type/... | Laundry/Garage/... | Sewer/...) --
-    feat_col1 = feat_col2 = feat_col3 = ""
+    feat_col1 = feat_col2 = feat_col3 = feat_col_gp = ""
     rooms_left = rooms_right = ""
     try:
         grid_hit = _find("Age:")
@@ -952,6 +965,18 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
                 feat_col1 = _degarble(re.sub(r"\s*\n\s*", " ", _text_spanning_pages(gi, top, bi, bottom, 0, 195)))
                 feat_col2 = _degarble(re.sub(r"\s*\n\s*", " ", _text_spanning_pages(gi, top, bi, bottom, 195, 395)))
                 feat_col3 = _degarble(re.sub(r"\s*\n\s*", " ", _text_spanning_pages(gi, top, bi, bottom, 395, page_width)))
+                # Garage/Parking Ownership|On Site|Details rows are indented
+                # sub-labels that sit right where the col1/col2 boundary
+                # (195) falls -- on some export flavors the label word
+                # ("Garage"/"Parking", x~186-208) lands just inside col1
+                # while its own "Ownership:"/"On Site:"/"Details:"
+                # continuation (x~210-234) lands just inside col2, splitting
+                # a single label across both and making it unmatchable in
+                # either. This wider column (180-395) spans that boundary so
+                # the label stays intact, while still cutting off at col3
+                # (395) so it doesn't pick up unrelated col3 content that
+                # happens to wrap onto the same visual row.
+                feat_col_gp = _degarble(re.sub(r"\s*\n\s*", " ", _text_spanning_pages(gi, top, bi, bottom, 180, 395)))
 
         room_hdr_hit = _find("Room", margin_cutoff)
         if room_hdr_hit:
@@ -996,6 +1021,13 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             listing.parking_spaces = g_space
         if (g_onsite or "").strip().lower() == "yes" and not listing.parking_type:
             listing.parking_type = "Garage"
+
+        # Parking-side counterpart of Garage Ownership above -- usually
+        # empty on this compact layout (see comment above), but grabbed
+        # the same way in case a given export does populate it.
+        p_ownership = _grab(full_text, "Parking Ownership", compact_stops)
+        if p_ownership and not _is_nullish(p_ownership):
+            listing.parking_ownership = p_ownership
 
     # The feature grid's exact set/order of fields varies by property type
     # (a detached home adds Attic/Basement Details/Additional Rooms/Gas
@@ -1107,6 +1139,23 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     garage_type = _grab_feat(feat_col2, "Garage Type")
     if garage_type and not _is_nullish(garage_type):
         listing.garage_type = garage_type
+
+    # "Parking Ownership:"/"Parking Details:" -- the exterior/surface-space
+    # counterparts of Garage Ownership/Details above, used instead of the
+    # Garage fields on sheets where the parking spot isn't a garage (e.g. a
+    # rental with an assigned outdoor or underground space). Also a
+    # "recognized FEAT_LABELS stop-word but never grabbed" gap.
+    #
+    # Grabbed from feat_col_gp (the widened 180-395 column computed above)
+    # rather than feat_col2, since on some export flavors the "Parking"/
+    # "Garage" label word itself falls just outside feat_col2's left edge.
+    parking_ownership = _grab_feat(feat_col_gp, "Parking Ownership")
+    if parking_ownership and not _is_nullish(parking_ownership):
+        listing.parking_ownership = parking_ownership
+
+    parking_details = _grab_feat(feat_col_gp, "Parking Details")
+    if parking_details and not _is_nullish(parking_details):
+        listing.parking_details = parking_details
 
     # Number of stories in the home itself (distinct from a condo building's
     # "# Stories:", which is about the building, not the unit) -- shown as

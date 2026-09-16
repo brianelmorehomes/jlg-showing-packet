@@ -217,7 +217,12 @@ def parking_note(listing):
         parts.append("Not included in price")
     elif incl == "yes":
         parts.append("Included in price")
-    ownership = (listing.garage_ownership or "").strip()
+    # Garage Ownership and Parking Ownership are mutually exclusive on a
+    # given sheet (one for a garage spot, one for a non-garage/exterior
+    # spot) -- e.g. a rental's "Parking Ownership: Fee/Leased ($250)" is
+    # just as real a buyer-facing cost as a for-sale garage's "Deeded Sold
+    # Separately ($25,000)".
+    ownership = (listing.garage_ownership or listing.parking_ownership or "").strip()
     if "$" in ownership:
         parts.append(ownership)
     return " — ".join(parts)
@@ -645,11 +650,16 @@ def feature_groups(listing, water_features_display_val, water_utilities_display_
         # parking_note() near the price only surfaces this field when it
         # contains "$" (that one's specifically about cost), but "Owned"
         # vs. "Leased" is a real fact this card should carry regardless.
-        ownership = (listing.garage_ownership or "").strip()
+        # Garage Ownership/Details and Parking Ownership/Details are
+        # mutually exclusive on a given sheet (garage spot vs. non-garage/
+        # exterior spot), so falling back to the Parking-side field covers
+        # listings like a rental's assigned outdoor or underground space.
+        ownership = (listing.garage_ownership or listing.parking_ownership or "").strip()
         if ownership:
             body += f" · {ownership}"
-        if listing.garage_details:
-            body += f" · {listing.garage_details}"
+        details = listing.garage_details or listing.parking_details
+        if details:
+            body += f" · {details}"
         groups.append(("Parking & Garage", body))
     if listing.amenities:
         groups.append(("Building Amenities", listing.amenities))
@@ -688,8 +698,6 @@ def render_flyer(
     agent_email="brian@justinlucasgroup.com",
     agent_name="Brian Elmore",
     print_safe_logo=False,
-    page_offset=1,
-    total_pages=2,
 ):
     env = Environment(loader=FileSystemLoader(os.path.join(BASE_DIR, "templates")))
     template = env.get_template("flyer.html")
@@ -723,11 +731,10 @@ def render_flyer(
         # that single bright/varied sample spiked the column's variance
         # past the threshold and stopped the crop scan almost immediately,
         # leaving most of the bar in place (seen on a Home Platform photo
-        # in the sibling jlg-listing-flyer app, where a tree branch at x=5
-        # halted a ~45px-wide left bar after only 5px). Requiring a high
-        # dark-pixel majority (92%) instead of low variance tolerates that
-        # kind of small intrusion while still rejecting genuinely
-        # detailed/bright regions.
+        # where a tree branch at x=5 halted a ~45px-wide left bar after
+        # only 5px). Requiring a high dark-pixel majority (92%) instead of
+        # low variance tolerates that kind of small intrusion while still
+        # rejecting genuinely detailed/bright regions.
         try:
             from PIL import Image
 
@@ -836,8 +843,6 @@ def render_flyer(
         price_change_note=price_change_note(listing),
         is_condo_like=(listing.ownership or "").strip().lower() in ("condo", "co-op"),
         prepared_date=datetime.date.today().strftime("%B %-d, %Y"),
-        page_offset=page_offset,
-        total_pages=total_pages,
     )
 
     # Start at the tier the old room-count heuristic would have picked --
