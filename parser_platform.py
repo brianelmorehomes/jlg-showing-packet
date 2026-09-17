@@ -229,7 +229,8 @@ def _text_section(words, headers, name, page_bottom):
 # ---------------------------------------------------------------------------
 
 _BANNER_RE = re.compile(
-    r"(?:Client|Agent)\s*-\s*(?P<addrcity>.+?)\s+(?P<state>[A-Z]{2})\s+(?P<zip>\d{5})\s+"
+    r"(?:Client|Agent)\s*-\s*(?P<addrcity>.+?)\s+(?P<state>[A-Z]{2})\s+"
+    r"(?:(?P<zip>\d{5})\s+)?"
     r"(?P<status>Active\s*\(\s*Private\s*\)|Active|Pending|Contingent|Sold|Closed|"
     r"Coming Soon|Withdrawn|Expired|New)\s+"
     r"\$(?P<price>[\d,]+)\s+"
@@ -237,6 +238,18 @@ _BANNER_RE = re.compile(
     r"(?:\s*[•*]\s*(?P<bhalf>\d+)\s*1/2\s*BA)?\s*[•*]\s*"
     r"(?P<sqft>[\d,]+)\s*SF"
 )
+# The zip capture above is optional because a long enough street/unit/city
+# ("420 East Waterside Drive Unit 2602 Chicago IL 60601") wraps onto a
+# second visual row in Home Platform's own PDF export -- confirmed on a
+# real sample where the zip alone got pushed onto that second row while
+# price/beds/baths/page-marker stayed on the first row to its right.
+# pdfplumber's extract_text() groups words into lines by y-position, so
+# that wrapped zip comes out on its OWN line, positioned after the rest of
+# row 1's content in the extracted text rather than between state and
+# status where a non-wrapped banner has it -- which broke the regex
+# entirely (no match at all, not just a missing zip) when the zip capture
+# was mandatory. Falling back to this below when inline capture misses.
+_WRAPPED_ZIP_RE = re.compile(r"(?m)^(\d{5})$")
 
 # Common street-type suffixes, used to split the banner's glued-together
 # "<street address><city>" text (there's no delimiter between them --
@@ -295,7 +308,16 @@ def _parse_banner(page1_text):
     out["address_line1"] = street
     out["city"] = city
     out["state"] = m.group("state")
-    out["zip_code"] = m.group("zip")
+    zip_code = m.group("zip")
+    if not zip_code:
+        # Wrapped-address case -- see _WRAPPED_ZIP_RE comment above. Scan
+        # only a short prefix of the page so an unrelated standalone
+        # 5-digit line further down the sheet (there aren't any this early
+        # in practice, but bounding it costs nothing) can't get mistaken
+        # for the zip.
+        zm = _WRAPPED_ZIP_RE.search(page1_text[:800])
+        zip_code = zm.group(1) if zm else ""
+    out["zip_code"] = zip_code
     out["status"] = _STATUS_MAP.get(re.sub(r"\s+", " ", m.group("status").strip().lower()), "")
     out["list_price"] = f"${m.group('price')}"
     out["bedrooms"] = m.group("beds")
