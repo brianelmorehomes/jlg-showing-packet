@@ -231,7 +231,7 @@ def _text_section(words, headers, name, page_bottom):
 _BANNER_RE = re.compile(
     r"(?:Client|Agent)\s*-\s*(?P<addrcity>.+?)\s+(?P<state>[A-Z]{2})\s+(?P<zip>\d{5})\s+"
     r"(?P<status>Active\s*\(\s*Private\s*\)|Active|Pending|Contingent|Sold|Closed|"
-    r"Coming Soon|Withdrawn|Expired)\s+"
+    r"Coming Soon|Withdrawn|Expired|New)\s+"
     r"\$(?P<price>[\d,]+)\s+"
     r"(?P<beds>\d+)\s*BD\s*[•*]\s*(?P<bfull>\d+)\s*BA"
     r"(?:\s*[•*]\s*(?P<bhalf>\d+)\s*1/2\s*BA)?\s*[•*]\s*"
@@ -280,6 +280,7 @@ _STATUS_MAP = {
     "sold": "SOLD",
     "closed": "CLSD",
     "coming soon": "NEW",
+    "new": "NEW",
     "withdrawn": "EXP",
     "expired": "EXP",
 }
@@ -427,6 +428,7 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         details = {}      # Key Details
         history = {}      # Property History
         propdetails = {}  # Property Details
+        pubrecords = {}   # Public Records
         description = ""
         amenities_text = ""
         schools_lines = []
@@ -457,6 +459,16 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             pd = _grid_section(words, headers, "Property Details", bottom)
             if pd:
                 propdetails.update(pd)
+            # Public Records -- a county-assessor data block also present
+            # on this sheet (Client page 2, Agent's equivalent page), that
+            # carries a County field this platform otherwise doesn't have
+            # anywhere (see module docstring's "no County field at all").
+            # Also carries the current owner's name and mailing address --
+            # deliberately only County gets read out of this dict below;
+            # never add a wholesale dump of this section to the flyer.
+            pr = _grid_section(words, headers, "Public Records", bottom)
+            if pr:
+                pubrecords.update(pr)
             if not description:
                 description = _text_section(words, headers, "Description", bottom)
             if not amenities_text:
@@ -477,6 +489,26 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     ownership = details.get("Ownership", "")
     if ownership:
         listing.ownership = ownership
+
+    # County -- not present anywhere in Key Details/Property Details on
+    # this sheet (see module docstring), but IS present in the separate
+    # Public Records section, which otherwise only carries county-assessor
+    # data (owner name/mailing address, assessed value breakdown) this
+    # flyer has no business showing -- County is the one field from that
+    # section worth reading out. Fixes the geocoding fallback gap noted in
+    # jlg-showing-packet's packet.py (_county_level()) for listings from
+    # this source.
+    county = pubrecords.get("County", "")
+    if county and not _is_nullish(county):
+        listing.county = county.title()
+
+    # Interior fireplace count -- shares the same `fireplaces` field the
+    # classic MRED parser populates from "# Fireplaces:" (see parser.py),
+    # already wired into the facts strip there; this sheet just labels it
+    # differently ("Num of Interior Fireplaces").
+    fireplaces = details.get("Num of Interior Fireplaces", "")
+    if fireplaces and not _is_nullish(fireplaces):
+        listing.fireplaces = fireplaces
 
     # --- Parking/garage ------------------------------------------------------
     garage_spaces = details.get("Num Of Garage Spaces", "")
@@ -581,16 +613,20 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         # up as a token inside the Amenities list, either bare
         # ("Basement") or with a finish/size qualifier ("Full Basement"),
         # confirmed on real samples of both -- so a substring match (not
-        # exact) is needed to catch the qualified form. Use the fuller
-        # token as the display value when there is one (matches the
-        # richer "Full"/"Finished" values basement_display() already
-        # shows for classic MRED listings); fall back to a plain "Yes"
-        # for the bare form, since that's all the sheet tells us.
-        basement_item = next(
-            (t.strip() for t in amenities_text.split(",") if "basement" in t.lower()),
-            None,
-        )
-        if basement_item:
+        # exact) is needed to catch the qualified form. Some listings
+        # (3541 N Paulina) carry BOTH tokens in the same list ("...
+        # Fireplace, Basement, Forced Air, Range, Full Basement, Park,
+        # ...") -- MRED appears to emit a bare "Basement" amenity flag
+        # alongside a separately-sourced finish/size qualifier rather than
+        # one or the other. Taking the first match blindly picked the bare
+        # "Basement" and threw away the more useful "Full Basement" sitting
+        # right next to it, so this explicitly prefers any qualified token
+        # over the bare one when both are present, and only falls back to
+        # bare "Basement" -> "Yes" when that's genuinely all the sheet
+        # gives us.
+        basement_tokens = [t.strip() for t in amenities_text.split(",") if "basement" in t.lower()]
+        if basement_tokens:
+            basement_item = next((t for t in basement_tokens if t.lower() != "basement"), basement_tokens[0])
             listing.basement = "Yes" if basement_item.lower() == "basement" else basement_item
     if description:
         listing.remarks = description
