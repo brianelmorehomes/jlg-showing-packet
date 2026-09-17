@@ -741,7 +741,7 @@ def render_flyer(
         # kind of small intrusion while still rejecting genuinely
         # detailed/bright regions.
         try:
-            from PIL import Image
+            from PIL import Image, ImageFilter
 
             def _autocrop_black_bars(im, thresh=12, dark_frac=0.92):
                 im = im.convert("RGB")
@@ -791,6 +791,34 @@ def render_flyer(
 
             with Image.open(photo_path) as im:
                 im = _autocrop_black_bars(im)
+                # Home Platform's own PDF export embeds the property photo
+                # as a genuinely tiny thumbnail -- confirmed a fixed
+                # 135px-tall embed across every real sample checked
+                # (89-203px wide depending on aspect ratio), vs. MRED's
+                # ~300px embeds. The hero photo box is a fixed 2.95in x
+                # 1.97in regardless of source, so at print resolution
+                # (~300dpi, ~885x591px) a 135px-tall source has to stretch
+                # roughly 4-6x -- soft/blurry no matter what, since there's
+                # no missing detail to recover, just too few source pixels.
+                # Left entirely to the PDF renderer, that stretch uses
+                # whatever interpolation it defaults to (unknown quality,
+                # and the same interpolation was already looking bad
+                # enough that Brian noticed). Doing one deliberate
+                # high-quality upscale ourselves first -- Lanczos
+                # resampling plus a mild unsharp mask to counter the
+                # softness resizing always introduces -- looks
+                # meaningfully better. Gated on the source actually being
+                # this small (well under MRED's ~300px floor) so MRED/
+                # MichRIC photos, which don't have this problem, pass
+                # through unchanged rather than risking a sharpening
+                # artifact on an image that was already fine.
+                if min(im.size) < 250:
+                    scale = 600 / min(im.size)
+                    im = im.resize(
+                        (round(im.width * scale), round(im.height * scale)),
+                        Image.LANCZOS,
+                    )
+                    im = im.filter(ImageFilter.UnsharpMask(radius=1.2, percent=180, threshold=2))
                 im.save(photo_path, format="JPEG", quality=90, dpi=(96, 96))
         except Exception:
             pass
