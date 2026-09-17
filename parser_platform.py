@@ -347,6 +347,41 @@ def _parse_schools(lines):
 
 
 # ---------------------------------------------------------------------------
+# Transit (e.g. "Paulina Brown Line 3 min * 0.16 mi away", "Addison &
+# Paulina 152 1 min * 0.07 mi away" -- a mix of train stops and bus routes
+# with no consistent delimiter between the stop/route name and the walk
+# time, so this only pulls out the walk time and treats everything before
+# it as one description rather than trying to cleanly split stop name from
+# line/route name.
+# ---------------------------------------------------------------------------
+
+_TRANSIT_LINE_RE = re.compile(
+    r"^(?P<desc>.+?)\s+(?P<mins>\d+)\s*min\s*[••]\s*[\d.]+\s*mi",
+    re.IGNORECASE,
+)
+
+
+def _parse_transit(lines, limit=2):
+    """First `limit` parseable stops, in the sheet's own listed order (not
+    re-sorted by walk time -- the sheet already lists Paulina/Addison-Brown/
+    Southport/... nearest-train-first in every real sample seen, a bus
+    route mixed in further down isn't worth the complexity of re-ranking
+    across mode types for a 2-line flyer card)."""
+    out = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        m = _TRANSIT_LINE_RE.match(line)
+        if not m:
+            continue
+        out.append(f"{m.group('desc').strip()} — {m.group('mins')} min walk")
+        if len(out) >= limit:
+            break
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
 # Photo -- the property photo is always the LEFTMOST image in the header's
 # photo row (top of page); the Google Maps thumbnail sits to its right and
 # the agent headshot further right still, confirmed identical positioning
@@ -432,6 +467,7 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         description = ""
         amenities_text = ""
         schools_lines = []
+        transit_lines = []
 
         for i in use_idx:
             page = pdf.pages[i]
@@ -475,6 +511,8 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
                 amenities_text = _text_section(words, headers, "Amenities", bottom)
             if not schools_lines:
                 schools_lines = _section_rows(words, headers, "Schools", bottom)
+            if not transit_lines:
+                transit_lines = _section_rows(words, headers, "Transit", bottom)
 
     # --- MLS / property basics ---------------------------------------------
     listing.mls_number = details.get("MLS ID", "")
@@ -509,6 +547,15 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     fireplaces = details.get("Num of Interior Fireplaces", "")
     if fireplaces and not _is_nullish(fireplaces):
         listing.fireplaces = fireplaces
+
+    # Open house -- Key Details' compact one-line version ("Sat, Sep 19th
+    # 11:00 AM - 1:00 PM"), already sitting in `details` from the same grid
+    # grab as everything else above. There's a richer, separate "Open
+    # Houses" section with Date/Time/Type/Contact broken into its own
+    # fields, but the compact form is all the flyer's badge needs.
+    open_house = details.get("Open House", "")
+    if open_house and not _is_nullish(open_house):
+        listing.open_house = open_house
 
     # --- Parking/garage ------------------------------------------------------
     garage_spaces = details.get("Num Of Garage Spaces", "")
@@ -635,6 +682,10 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         listing.elementary = elem
         listing.junior_high = mid
         listing.high_school = high
+    if transit_lines:
+        nearby_transit = _parse_transit(transit_lines)
+        if nearby_transit:
+            listing.nearby_transit = nearby_transit
 
     _extract_photo(file_bytes, listing)
 

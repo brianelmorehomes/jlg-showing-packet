@@ -190,6 +190,15 @@ class Listing:
                          # "N (North), W (West)". Condo-relevant (affects
                          # natural light expectations); folded into
                          # interior_features rather than given its own card.
+    open_house: str = ""  # e.g. "Sat, Sep 19th 11:00 AM - 1:00 PM" -- only
+                           # ever populated by parser_platform.py today (no
+                           # classic MRED/MichRIC sheet carries this), shown
+                           # as a small badge over the hero photo. See
+                           # flyer.html's .open-house-badge.
+    nearby_transit: str = ""  # 1-2 lines, e.g. "Paulina Brown Line - 3 min
+                               # walk", newline-separated -- also
+                               # parser_platform.py-only. See render.py's
+                               # feature_groups().
 
     bedrooms: str = ""
     bathrooms_full: str = ""

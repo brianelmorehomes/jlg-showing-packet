@@ -663,6 +663,8 @@ def feature_groups(listing, water_features_display_val, water_utilities_display_
         groups.append(("Parking & Garage", body))
     if listing.amenities:
         groups.append(("Building Amenities", listing.amenities))
+    if listing.nearby_transit:
+        groups.append(("Nearby Transit", listing.nearby_transit))
     return groups
 
 
