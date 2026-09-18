@@ -498,6 +498,7 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
                            # named sections are folded into one dict.
         pubrecords = {}   # Public Records
         rooms_total_raw = ""
+        garage_cost_raw = ""
         description = ""
         amenities_text = ""
         schools_lines = []
@@ -556,44 +557,51 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             if not transit_lines:
                 transit_lines = _section_rows(words, headers, "Transit", bottom)
 
-        # "Num Of Rooms" (-> rooms_total) lives inside the "Interior
-        # Features" subsection of the page-spanning "Property Information"
-        # section. First assumed this section was Agent-only (true on
-        # every sample checked at the time), but a later real sample --
+        # A handful of fields (Num Of Rooms, Deeded Garage Cost) live
+        # inside subsections ("Interior Features", "Addtl Parking
+        # Information") of the page-spanning "Property Information"
+        # section. First assumed that whole section was Agent-only (true
+        # of every sample checked at the time), but a later real sample --
         # same listing, 420 E Waterside Dr, re-exported -- turned up a
         # 4-page ALL-CLIENT export that includes this exact section
-        # (Confidential Data/Showing Info/Interior Features/Num Of Rooms
-        # and all) under "Client -" banners throughout, no Agent pages in
-        # the file at all. So Client-vs-Agent doesn't reliably predict
-        # whether this section is present -- it depends on which export
-        # variant Home Platform generated, not (as first assumed) which
-        # flavor. Scanning the union of `use_idx` (whichever flavor is
-        # actually in use) and `agent_idx` (in case Agent pages exist
-        # separately and weren't otherwise selected) covers every variant
-        # seen so far without needing to special-case any of them. Also
-        # handles the field landing on a headerless continuation page:
-        # "Interior Features" is itself a bold 7.0pt subheading, one
-        # visual tier below the >=7.5pt threshold _section_headers()
-        # requires to count as a real section header -- confirmed on the
-        # original Agent-only sample where "Property Information" starts
-        # on one page and "Interior Features"/"Num Of Rooms" only show up
-        # on the NEXT page, which has no >=7.5pt bold text anywhere on it,
-        # so _grid_section("Property Information", ...) can't find a
+        # (Confidential Data/Showing Info/Interior Features/Num Of Rooms/
+        # Addtl Parking Information and all) under "Client -" banners
+        # throughout, no Agent pages in the file at all. So Client-vs-
+        # Agent doesn't reliably predict whether this section is present
+        # -- it depends on which export variant Home Platform generated,
+        # not (as first assumed) which flavor. Scanning the union of
+        # `use_idx` (whichever flavor is actually in use) and `agent_idx`
+        # (in case Agent pages exist separately and weren't otherwise
+        # selected) covers every variant seen so far without needing to
+        # special-case any of them. Also handles a field landing on a
+        # headerless continuation page: these subsection headings are
+        # themselves bold 7.0pt text, one visual tier below the >=7.5pt
+        # threshold _section_headers() requires to count as a real section
+        # header -- confirmed on the original Agent-only sample where
+        # "Property Information" starts on one page and "Interior
+        # Features"/"Num Of Rooms" only show up on the NEXT page, which
+        # has no >=7.5pt bold text anywhere on it, so
+        # _grid_section("Property Information", ...) can't find a
         # bounding header there and comes back empty. Scanning each page's
         # whole grid unbounded by any section sidesteps reconstructing
-        # cross-page section continuity -- "Num Of Rooms" is a unique
-        # label that doesn't collide with anything else on this sheet, so
-        # this is safe even though it ignores section boundaries entirely.
+        # cross-page section continuity -- both labels here are unique and
+        # don't collide with anything else on this sheet, so this is safe
+        # even though it ignores section boundaries entirely.
         for i in sorted(set(use_idx) | set(agent_idx)):
-            if rooms_total_raw:
+            if rooms_total_raw and garage_cost_raw:
                 break
             page = pdf.pages[i]
             words = page.extract_words(extra_attrs=["fontname", "size"])
             words = [w for w in words if w.get("size", 0) >= 6.0]
             raw = _extract_kv_grid(words, 0, page.height)
-            val = raw.get("Num Of Rooms", "")
-            if val and not _is_nullish(val):
-                rooms_total_raw = val
+            if not rooms_total_raw:
+                val = raw.get("Num Of Rooms", "")
+                if val and not _is_nullish(val):
+                    rooms_total_raw = val
+            if not garage_cost_raw:
+                val = raw.get("Deeded Garage Cost", "")
+                if val and not _is_nullish(val):
+                    garage_cost_raw = val
 
     # --- MLS / property basics ---------------------------------------------
     listing.mls_number = details.get("MLS ID", "")
@@ -623,6 +631,23 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
 
     if rooms_total_raw:
         listing.rooms_total = rooms_total_raw
+
+    # "Deeded Garage Cost" ($35,000.00) -- the field's own name already
+    # tells us the ownership type (deeded), so this is built into the same
+    # "<Ownership> (<$cost>)" shape classic MRED's "Garage Ownership:"
+    # field uses ("Deeded Sold Separately ($25,000)") -- garage_ownership
+    # is a shared Listing field, and both parking_note() and
+    # feature_groups() in render.py already know how to surface it (they
+    # only care that a "$" is in the string), so no template/render.py
+    # changes are needed here. Cents are stripped ("$35,000.00" ->
+    # "$35,000") to match that same MRED convention, which never carries
+    # cents. This platform's sheet has no separate non-deeded/leased
+    # parking-cost field seen on any real sample yet -- only add one here
+    # once an actual sample surfaces it, per the "verified against real
+    # samples" rule the rest of this parser follows.
+    if garage_cost_raw:
+        cost = re.sub(r"\.00$", "", garage_cost_raw)
+        listing.garage_ownership = f"Deeded ({cost})"
 
     # Interior fireplace count -- shares the same `fireplaces` field the
     # classic MRED parser populates from "# Fireplaces:" (see parser.py),
