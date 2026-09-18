@@ -470,6 +470,14 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             use_idx = [i for i, k in enumerate(kinds) if k == "agent"]
         else:
             use_idx = []
+        # Agent pages specifically -- a few fields (Num Of Rooms in
+        # particular, see the rooms_total_raw scan below) only ever appear
+        # on the Agent flavor, confirmed absent from every Client page on
+        # every real sample checked. When a combined Client+Agent upload
+        # prefers Client above, those Agent-only pages are still worth a
+        # second, narrower pass for just that handful of fields rather
+        # than losing them entirely.
+        agent_idx = [i for i, k in enumerate(kinds) if k == "agent"]
 
         if not use_idx:
             # Not actually this platform's format (shouldn't happen --
@@ -484,8 +492,12 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
 
         details = {}      # Key Details
         history = {}      # Property History
-        propdetails = {}  # Property Details
+        propdetails = {}  # Property Details / Building Details -- see the
+                           # total_stories/total_units/unit_floor_level
+                           # dispatch below for why these two differently-
+                           # named sections are folded into one dict.
         pubrecords = {}   # Public Records
+        rooms_total_raw = ""
         description = ""
         amenities_text = ""
         schools_lines = []
@@ -514,7 +526,15 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             h = _grid_section(words, headers, "Property History", bottom)
             if h:
                 history.update(h)
-            pd = _grid_section(words, headers, "Property Details", bottom)
+            # Newer exports rename this section "Building Details" -- same
+            # content, confirmed on a real sample (420 E Waterside Dr, a
+            # high-rise condo) where "Property Details" doesn't appear
+            # anywhere on the sheet at all, but "Building Details" carries
+            # the exact same Building/Complex, Total Units, Total Stories,
+            # Unit Floor, Lot Sq. Ft/Dimensions fields the older-template
+            # samples (Paulina, Red Oak) filed under "Property Details".
+            pd = (_grid_section(words, headers, "Property Details", bottom)
+                  or _grid_section(words, headers, "Building Details", bottom))
             if pd:
                 propdetails.update(pd)
             # Public Records -- a county-assessor data block also present
@@ -535,6 +555,38 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
                 schools_lines = _section_rows(words, headers, "Schools", bottom)
             if not transit_lines:
                 transit_lines = _section_rows(words, headers, "Transit", bottom)
+
+        # "Num Of Rooms" (-> rooms_total) lives inside the "Interior
+        # Features" subsection of the page-spanning "Property Information"
+        # section, which is Agent-only -- never present on a Client page on
+        # any real sample checked. Client is normally preferred above (see
+        # module docstring), so this needs its own pass over agent_idx
+        # specifically, otherwise a combined Client+Agent upload would
+        # never see it even though it's right there in the file. Also
+        # handles the field landing on a headerless continuation page:
+        # "Interior Features" is itself a bold 7.0pt subheading, one
+        # visual tier below the >=7.5pt threshold _section_headers()
+        # requires to count as a real section header -- confirmed on a
+        # real sample (420 E Waterside Dr) where "Property Information"
+        # starts on one page and "Interior Features"/"Num Of Rooms" only
+        # show up on the NEXT page, which has no >=7.5pt bold text
+        # anywhere on it, so _grid_section("Property Information", ...)
+        # can't find a bounding header there and comes back empty.
+        # Scanning each agent page's whole grid unbounded by any section
+        # sidesteps reconstructing cross-page section continuity -- "Num
+        # Of Rooms" is a unique label that doesn't collide with anything
+        # else on this sheet, so this is safe even though it ignores
+        # section boundaries entirely.
+        for i in agent_idx:
+            if rooms_total_raw:
+                break
+            page = pdf.pages[i]
+            words = page.extract_words(extra_attrs=["fontname", "size"])
+            words = [w for w in words if w.get("size", 0) >= 6.0]
+            raw = _extract_kv_grid(words, 0, page.height)
+            val = raw.get("Num Of Rooms", "")
+            if val and not _is_nullish(val):
+                rooms_total_raw = val
 
     # --- MLS / property basics ---------------------------------------------
     listing.mls_number = details.get("MLS ID", "")
@@ -561,6 +613,9 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     county = pubrecords.get("County", "")
     if county and not _is_nullish(county):
         listing.county = county.title()
+
+    if rooms_total_raw:
+        listing.rooms_total = rooms_total_raw
 
     # Interior fireplace count -- shares the same `fireplaces` field the
     # classic MRED parser populates from "# Fireplaces:" (see parser.py),
@@ -647,16 +702,35 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     # Detached/Attached: 2 Stories" -> listing.stories vs. "# Stories:" ->
     # listing.total_stories, with the latter's own comment noting it's
     # "especially relevant for condos/co-ops"). This sheet's "Total
-    # Stories" field is the former, not the latter -- confirmed by Red Oak
-    # Dr, a single-family Ranch, populating it directly with no Total
-    # Units/Unit Floor Level fields anywhere on the sheet. Mapping it to
-    # `total_stories` was wrong: flyer.html's facts-strip-secondary picks
-    # its whole second row based on whether ANY of total_units/
-    # total_stories/unit_floor_level is set, so a populated total_stories
-    # on a non-condo listing silently swapped Basement/Fireplaces out for
-    # a Total Units/Unit Floor row that's always blank for this source.
+    # Stories" field means one or the other depending on what ELSE is in
+    # the same section: on a single-family Ranch (Red Oak Dr) it's alone,
+    # with no Total Units/Unit Floor Level fields anywhere on the sheet --
+    # that's the home's own story count. On a high-rise condo (420 E
+    # Waterside Dr) it sits right alongside Total Units/Unit Floor in the
+    # same grid -- that's the BUILDING's floor count, and Total Units/
+    # Unit Floor themselves were never being captured into the Listing
+    # model at all before this fix. flyer.html's facts-strip-secondary
+    # picks its whole second row based on whether ANY of total_units/
+    # total_stories/unit_floor_level is set, so getting this dispatch
+    # wrong either swaps in a Total Units/Unit Floor row that's blank for
+    # a house, or (the bug Brian actually hit) leaves a condo's real
+    # building data uncaptured and falls back to a Basement/Fireplaces/
+    # Stories row where Stories is also empty.
+    total_units = propdetails.get("Total Units", "")
+    unit_floor = propdetails.get("Unit Floor", "")
     stories = propdetails.get("Total Stories", "")
-    if stories and not _is_nullish(stories):
+    is_building_info = (
+        (total_units and not _is_nullish(total_units))
+        or (unit_floor and not _is_nullish(unit_floor))
+    )
+    if is_building_info:
+        if total_units and not _is_nullish(total_units):
+            listing.total_units = total_units
+        if unit_floor and not _is_nullish(unit_floor):
+            listing.unit_floor_level = unit_floor
+        if stories and not _is_nullish(stories):
+            listing.total_stories = stories
+    elif stories and not _is_nullish(stories):
         listing.stories = stories
     else:
         # Property Details' own "Total Stories" comes back blank ("-") on
@@ -670,8 +744,13 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         # holds a property-type string instead ("Single Family
         # Residence") that this regex simply won't match -- confirmed on
         # real samples of both, so this fallback only ever fires when
-        # it's actually needed.
-        m = re.search(r"(\d+(?:\.\d+)?)\s*Stor", details.get("MLS Prop Type 2", ""), re.IGNORECASE)
+        # it's actually needed. The optional "+" before "Stor" handles a
+        # condo's own "High Rise (7+ Stories)" phrasing (that listing
+        # normally hits the is_building_info branch above instead, but a
+        # condo sheet with Total Units/Unit Floor genuinely blank would
+        # otherwise silently fail to match here since the literal "+"
+        # sits between the digit and "Stories").
+        m = re.search(r"(\d+(?:\.\d+)?)\+?\s*Stor", details.get("MLS Prop Type 2", ""), re.IGNORECASE)
         if m:
             listing.stories = m.group(1)
 
