@@ -558,26 +558,33 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
 
         # "Num Of Rooms" (-> rooms_total) lives inside the "Interior
         # Features" subsection of the page-spanning "Property Information"
-        # section, which is Agent-only -- never present on a Client page on
-        # any real sample checked. Client is normally preferred above (see
-        # module docstring), so this needs its own pass over agent_idx
-        # specifically, otherwise a combined Client+Agent upload would
-        # never see it even though it's right there in the file. Also
+        # section. First assumed this section was Agent-only (true on
+        # every sample checked at the time), but a later real sample --
+        # same listing, 420 E Waterside Dr, re-exported -- turned up a
+        # 4-page ALL-CLIENT export that includes this exact section
+        # (Confidential Data/Showing Info/Interior Features/Num Of Rooms
+        # and all) under "Client -" banners throughout, no Agent pages in
+        # the file at all. So Client-vs-Agent doesn't reliably predict
+        # whether this section is present -- it depends on which export
+        # variant Home Platform generated, not (as first assumed) which
+        # flavor. Scanning the union of `use_idx` (whichever flavor is
+        # actually in use) and `agent_idx` (in case Agent pages exist
+        # separately and weren't otherwise selected) covers every variant
+        # seen so far without needing to special-case any of them. Also
         # handles the field landing on a headerless continuation page:
         # "Interior Features" is itself a bold 7.0pt subheading, one
         # visual tier below the >=7.5pt threshold _section_headers()
-        # requires to count as a real section header -- confirmed on a
-        # real sample (420 E Waterside Dr) where "Property Information"
-        # starts on one page and "Interior Features"/"Num Of Rooms" only
-        # show up on the NEXT page, which has no >=7.5pt bold text
-        # anywhere on it, so _grid_section("Property Information", ...)
-        # can't find a bounding header there and comes back empty.
-        # Scanning each agent page's whole grid unbounded by any section
-        # sidesteps reconstructing cross-page section continuity -- "Num
-        # Of Rooms" is a unique label that doesn't collide with anything
-        # else on this sheet, so this is safe even though it ignores
-        # section boundaries entirely.
-        for i in agent_idx:
+        # requires to count as a real section header -- confirmed on the
+        # original Agent-only sample where "Property Information" starts
+        # on one page and "Interior Features"/"Num Of Rooms" only show up
+        # on the NEXT page, which has no >=7.5pt bold text anywhere on it,
+        # so _grid_section("Property Information", ...) can't find a
+        # bounding header there and comes back empty. Scanning each page's
+        # whole grid unbounded by any section sidesteps reconstructing
+        # cross-page section continuity -- "Num Of Rooms" is a unique
+        # label that doesn't collide with anything else on this sheet, so
+        # this is safe even though it ignores section boundaries entirely.
+        for i in sorted(set(use_idx) | set(agent_idx)):
             if rooms_total_raw:
                 break
             page = pdf.pages[i]
