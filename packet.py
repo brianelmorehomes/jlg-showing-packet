@@ -44,6 +44,7 @@ from weasyprint import HTML
 from pypdf import PdfReader, PdfWriter
 from PIL import Image, ImageDraw, ImageFont
 
+import google_maps
 from render import render_flyer
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -301,6 +302,42 @@ def _county_level(address, county):
 
 
 def geocode_addresses(addresses, counties=None, user_agent="jlg-showing-packet-app"):
+    """Geocode a list of full address strings to (lat, lon), None where an
+    address can't be resolved.
+
+    With Google switched on (see google_maps.google_enabled): each address
+    goes to the Google Geocoding API first, and only the ones Google can't
+    resolve fall through to the free Census/Nominatim chain below. Google
+    is far better on rural numbered-grid roads, where the free services
+    interpolate along road segments and can land a pin a half mile off.
+    Nothing is stored between builds, so Google's cache limits don't apply.
+    With Google off, this is exactly the free chain it always was."""
+    if not google_maps.google_enabled():
+        return _geocode_addresses_free(addresses, counties=counties, user_agent=user_agent)
+
+    results = [None] * len(addresses)
+    counties = counties or [None] * len(addresses)
+    deadline = time.monotonic() + 20
+    for i, addr in enumerate(addresses):
+        if not addr:
+            continue
+        if time.monotonic() > deadline:
+            break
+        results[i] = google_maps.geocode(addr)
+
+    missing = [i for i, r in enumerate(results) if r is None and addresses[i]]
+    if missing:
+        free = _geocode_addresses_free(
+            [addresses[i] for i in missing],
+            counties=[counties[i] if i < len(counties) else None for i in missing],
+            user_agent=user_agent,
+        )
+        for i, r in zip(missing, free):
+            results[i] = r
+    return results
+
+
+def _geocode_addresses_free(addresses, counties=None, user_agent="jlg-showing-packet-app"):
     """Best-effort geocode a list of full address strings (street + city/
     state/zip) to (lat, lon). `counties`, if given, is a parallel list of
     each listing's MLS-supplied county name (or "" / None), used to build
@@ -461,10 +498,70 @@ def _spread_coincident_points(valid):
     ]
 
 
+def _build_google_route_map(points, out_path, width=1280, height=760):
+    """Same numbered pins + route line as build_route_map, drawn over a
+    Google Static Map instead of OpenStreetMap tiles. Used whenever Google
+    is switched on: Google's terms don't allow its geocodes on a non-Google
+    map. The view (center/zoom) is chosen here so every pin fits, which
+    lets us project each stop to a pixel and keep our own numbered navy
+    pins (Google's built-in marker labels stop at 9 stops). Google's logo
+    and attribution along the bottom edge are left uncovered. Returns
+    out_path, or None if the map can't be fetched (no OSM fallback)."""
+    from io import BytesIO
+
+    valid = [(i + 1, p) for i, p in enumerate(points) if p]
+    if not valid:
+        return None
+    valid = _spread_coincident_points(valid)
+
+    scale = 2
+    log_w, log_h = min(width // scale, 640), min(max(height // scale, 60), 640)
+    lat0, lng0, zoom = google_maps.fit_view([p for _, p in valid], log_w, log_h)
+    png = google_maps.fetch_static_map((lat0, lng0), zoom, log_w, log_h, scale=scale)
+    if not png:
+        return None
+
+    img = Image.open(BytesIO(png)).convert("RGBA")
+    cx, cy = google_maps.world_px(lat0, lng0, zoom)
+    half_w, half_h = img.width / 2, img.height / 2
+
+    def to_px(lat, lng):
+        x, y = google_maps.world_px(lat, lng, zoom)
+        return half_w + (x - cx) * scale, half_h + (y - cy) * scale
+
+    pixels = [(n, to_px(lat, lng)) for n, (lat, lng) in valid]
+    if len(pixels) > 1:
+        ImageDraw.Draw(img, "RGBA").line([xy for _, xy in pixels], fill=(3, 43, 66, 170), width=5)
+
+    pin_paths = []
+    try:
+        for n, (px, py) in pixels:
+            pin_path, size = _make_pin(n)
+            pin_paths.append(pin_path)
+            pin = Image.open(pin_path).convert("RGBA")
+            img.alpha_composite(pin, (int(px - size // 2), int(py - (size + 10))))
+        img.convert("RGB").save(out_path)
+    except Exception:
+        traceback.print_exc()
+        return None
+    finally:
+        for p in pin_paths:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+    return out_path
+
+
 def build_route_map(points, out_path, width=1300, height=760, user_agent="jlg-showing-packet-app"):
     """points: ordered list of (lat, lon) or None. Draws numbered pins in
     showing order with a connecting line. Skips any stop that failed to
-    geocode. Returns out_path, or None if fewer than 1 point resolved."""
+    geocode. Returns out_path, or None if fewer than 1 point resolved.
+    With Google switched on this renders on a Google Static Map instead of
+    OpenStreetMap tiles (see _build_google_route_map)."""
+    if google_maps.google_enabled():
+        return _build_google_route_map(points, out_path, height=height)
+
     valid = [(i + 1, p) for i, p in enumerate(points) if p]
     if not valid:
         return None

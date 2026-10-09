@@ -8,3 +8,4 @@ pypdf
 geopy
 staticmap
 Pillow
+requests

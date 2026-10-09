@@ -231,7 +231,7 @@ PAGE = """
     </label>
     <label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:.82rem;color:var(--text);cursor:pointer;">
       <input type="checkbox" id="includeMap" checked style="margin:0;">
-      Include route map on cover page (free OpenStreetMap geocoding &mdash; adds ~1 sec/stop)
+      Include route map on cover page (adds a few seconds)
     </label>
 
     <button class="primary" id="generateBtn" type="button">Generate Showing Packet</button>
