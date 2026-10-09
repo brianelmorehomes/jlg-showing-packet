@@ -29,4 +29,4 @@ EXPOSE 10000
 # than the flyer app's because building a packet chains together several
 # PDF renders plus (if the map is on) one geocoding call per stop at ~1
 # request/second.
-CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 300
