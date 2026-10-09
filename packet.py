@@ -98,6 +98,12 @@ def split_into_listing_pdfs(file_bytes):
     is treated as a continuation of whatever listing precedes it, rather
     than starting a new group.
 
+    Home Platform (Compass) multi-listing prints carry no "MLS #:" header
+    at all. Each listing's banner instead ends in "Page 1/3", "Page 2/3",
+    "Page 3/3", so a page whose banner says "Page 1/<n>" starts a new
+    listing. (Without this, a multi-listing Home Platform export was read
+    as one giant listing, so only the first stop imported.)
+
     Returns a list of standalone single-listing PDFs (as bytes). For an
     ordinary single-listing upload this returns `[file_bytes]` unchanged --
     the common case is a no-op, and downstream parsing doesn't need to know
@@ -105,10 +111,13 @@ def split_into_listing_pdfs(file_bytes):
     try:
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             page_mls = []
+            page_starts = []
             for page in pdf.pages:
                 text = page.extract_text() or ""
                 m = re.search(r"MLS #:\s*(\d+)", text)
                 page_mls.append(m.group(1) if m else None)
+                hp = re.search(r"\bPage\s+(\d+)\s*/\s*(\d+)\b", text[:600])
+                page_starts.append(bool(hp and int(hp.group(1)) == 1))
     except Exception:
         return [file_bytes]
 
@@ -116,7 +125,9 @@ def split_into_listing_pdfs(file_bytes):
     current_mls = None
     current_pages = []
     for i, mls in enumerate(page_mls):
-        if mls is not None and current_pages and mls != current_mls:
+        new_mls = mls is not None and current_pages and mls != current_mls
+        new_hp_listing = page_starts[i] and current_pages
+        if new_mls or new_hp_listing:
             groups.append(current_pages)
             current_pages = []
         current_pages.append(i)
@@ -301,29 +312,40 @@ def _county_level(address, county):
     return f"{street}, {county_str}, {state_zip}"
 
 
-def geocode_addresses(addresses, counties=None, user_agent="jlg-showing-packet-app"):
+def geocode_addresses(addresses, counties=None, user_agent="jlg-showing-packet-app", sheet_coords=None):
     """Geocode a list of full address strings to (lat, lon), None where an
     address can't be resolved.
 
-    With Google switched on (see google_maps.google_enabled): each address
-    goes to the Google Geocoding API first, and only the ones Google can't
-    resolve fall through to the free Census/Nominatim chain below. Google
-    is far better on rural numbered-grid roads, where the free services
-    interpolate along road segments and can land a pin a half mile off.
-    Nothing is stored between builds, so Google's cache limits don't apply.
-    With Google off, this is exactly the free chain it always was."""
-    if not google_maps.google_enabled():
-        return _geocode_addresses_free(addresses, counties=counties, user_agent=user_agent)
+    Order of preference for each address:
+      1. Google Geocoding API, when switched on (see
+         google_maps.google_enabled) -- far better than the free services on
+         rural numbered-grid roads, where they interpolate along road
+         segments and can land a pin a half mile off. Nothing is stored
+         between builds, so Google's cache limits don't apply.
+      2. `sheet_coords`: the latitude/longitude printed on the listing
+         sheet itself (Home Platform sheets carry them), when given. About
+         as accurate as Google for a driving map and never wrong-town.
+      3. The free Census/Nominatim chain below.
+    With Google off and no sheet coordinates, this is exactly the free
+    chain it always was."""
+    n = len(addresses)
+    sheet_coords = list(sheet_coords or [None] * n)
+    sheet_coords += [None] * (n - len(sheet_coords))
+    counties = list(counties or [None] * n)
+    results = [None] * n
 
-    results = [None] * len(addresses)
-    counties = counties or [None] * len(addresses)
-    deadline = time.monotonic() + 20
-    for i, addr in enumerate(addresses):
-        if not addr:
-            continue
-        if time.monotonic() > deadline:
-            break
-        results[i] = google_maps.geocode(addr)
+    if google_maps.google_enabled():
+        deadline = time.monotonic() + 20
+        for i, addr in enumerate(addresses):
+            if not addr:
+                continue
+            if time.monotonic() > deadline:
+                break
+            results[i] = google_maps.geocode(addr)
+
+    for i in range(n):
+        if results[i] is None and sheet_coords[i]:
+            results[i] = tuple(sheet_coords[i])
 
     missing = [i for i, r in enumerate(results) if r is None and addresses[i]]
     if missing:
@@ -823,12 +845,20 @@ def build_packet(
         if include_map:
             addresses = [item["listing"].full_address for item in ordered_items]
             counties = [item["listing"].county for item in ordered_items]
+            sheet_coords = [
+                (getattr(item["listing"], "lat", None), getattr(item["listing"], "lng", None))
+                if getattr(item["listing"], "lat", None) is not None
+                and getattr(item["listing"], "lng", None) is not None else None
+                for item in ordered_items
+            ]
             fd, map_path = tempfile.mkstemp(suffix=".png")
             os.close(fd)
             tmp_paths.append(map_path)
 
             def _geocode_and_map():
-                points = geocode_addresses(addresses, counties=counties, user_agent=geocode_user_agent)
+                points = geocode_addresses(
+                    addresses, counties=counties, user_agent=geocode_user_agent, sheet_coords=sheet_coords
+                )
                 if not any(points):
                     return None
                 return build_route_map(

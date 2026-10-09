@@ -454,6 +454,346 @@ def _lot_size_from(details):
     return ""
 
 
+# ---------------------------------------------------------------------------
+# Property Information pages (Michigan/RESO vocabulary and friends)
+# ---------------------------------------------------------------------------
+#
+# Pages 2-3 of a Home Platform sheet carry a long "Property Information" /
+# "Interior and Exterior Features" / "Room Information" block whose labels
+# depend on the MLS the listing came from. Chicago (MRED) sheets use the
+# vocabulary the rest of this module already reads ("Num Of Rooms", ...);
+# Michigan sheets (MichRIC, Greater Regional/Realcomp-style RESO feeds) use
+# a different one ("Total Rooms", "Garage Spaces", "Tax Annual Amount",
+# "Heat Type", "Patio And Porch Features", ...). Before this pass, none of
+# those were read, so a Michigan flyer came out with no parking, taxable
+# value, appliances, heating/cooling, features or rooms -- everything the
+# classic MichRIC parser fills in. This pass maps them onto the same
+# Listing fields that parser uses, and only ever fills a field that is
+# still empty, so nothing the Key Details pass found is overwritten.
+
+_UNKNOWN_VALUES = {"", "-", "--", "none", "n/a", "na", "null", "unknown", "no", "false", "0", "0.0"}
+
+
+def _extract_kv_pairs_by_column(words, page_width, top_min=0, top_max=10_000, row_tol=3):
+    """Ordered [(label, value)] pairs from a two-column bold-label/regular-
+    value grid, reading the left column top to bottom and then the right.
+
+    Unlike _extract_kv_grid() (a flat dict, one entry per label), this keeps
+    duplicates and order -- needed for "Room 1 / Type / Level" blocks that
+    repeat the same labels -- and treats a row containing ONLY regular-weight
+    words as the wrapped continuation of the value above it in the same
+    column. Without that, a long value that wraps onto a second line
+    ("Window" / "Treatments") gets glued onto whatever sits at the same
+    height in the other column."""
+    picked = [w for w in words if top_min <= w["top"] < top_max]
+    mid = page_width * 0.49
+    pairs = []
+    for col in (0, 1):
+        cw = [w for w in picked if (w["x0"] >= mid) == bool(col)]
+        cw.sort(key=lambda w: (w["top"], w["x0"]))
+        rows, cur, cur_top = [], [], None
+        for w in cw:
+            if cur_top is None or abs(w["top"] - cur_top) <= row_tol:
+                cur.append(w)
+                cur_top = w["top"] if cur_top is None else cur_top
+            else:
+                rows.append(cur)
+                cur, cur_top = [w], w["top"]
+        if cur:
+            rows.append(cur)
+        for row in rows:
+            row.sort(key=lambda w: w["x0"])
+            bold_flags = ["Bold" in (w.get("fontname") or "") for w in row]
+            if not any(bold_flags):
+                # wrapped continuation of the previous value
+                if pairs and pairs[-1][1]:
+                    cont = " ".join(w["text"] for w in row)
+                    prev = pairs[-1][1]
+                    # The sheet hard-wraps long unbroken lists mid-word
+                    # ("...Oven,E" / "lectric Water Heater"): a lowercase
+                    # start right after a letter is the same word.
+                    glue = "" if (prev[-1].isalpha() and cont[0].islower()) else " "
+                    pairs[-1] = (pairs[-1][0], prev + glue + cont)
+                continue
+            label, value, mode = [], [], None
+            for w, is_bold in zip(row, bold_flags):
+                if is_bold:
+                    if mode == "value":
+                        pairs.append((" ".join(label), " ".join(value)))
+                        label, value = [], []
+                    mode = "label"
+                    label.append(w["text"])
+                else:
+                    mode = "value"
+                    value.append(w["text"])
+            pairs.append((" ".join(label), " ".join(value)))
+    return pairs
+
+
+def _extract_kv_pairs_by_row(words, row_tol=3):
+    """Ordered [(label, value)] pairs reading whole rows left to right (any
+    number of side-by-side columns). Same bold-label/regular-value logic as
+    _extract_kv_grid(), but keeps order and duplicates -- which the repeated
+    'Room n / Type / Level' blocks need, and which can pair a Type in the
+    left column with its Level in the right one."""
+    picked = sorted(words, key=lambda w: (w["top"], w["x0"]))
+    rows, cur, cur_top = [], [], None
+    for w in picked:
+        if cur_top is None or abs(w["top"] - cur_top) <= row_tol:
+            cur.append(w)
+            cur_top = w["top"] if cur_top is None else cur_top
+        else:
+            rows.append(cur)
+            cur, cur_top = [w], w["top"]
+    if cur:
+        rows.append(cur)
+    pairs = []
+    for row in rows:
+        row.sort(key=lambda w: w["x0"])
+        label, value, mode = [], [], None
+        for w in row:
+            if "Bold" in (w.get("fontname") or ""):
+                if mode == "value":
+                    pairs.append((" ".join(label), " ".join(value)))
+                    label, value = [], []
+                mode = "label"
+                label.append(w["text"])
+            else:
+                mode = "value"
+                value.append(w["text"])
+        if label or value:
+            pairs.append((" ".join(label), " ".join(value)))
+    return pairs
+
+
+def _clean_list(val):
+    """'Forced Air,Natural Gas,' -> 'Forced Air, Natural Gas'."""
+    parts = [p.strip() for p in re.split(r",(?![^(]*\))", val or "") if p.strip()]
+    return ", ".join(parts)
+
+
+def _num_text(val, decimals=False):
+    """'103719.0' -> '103,719'; leaves non-numeric text alone."""
+    v = (val or "").replace(",", "").replace("$", "").strip()
+    try:
+        f = float(v)
+    except ValueError:
+        return (val or "").strip()
+    return f"{int(round(f)):,}" if not decimals else f"{f:,.2f}"
+
+
+def _int_text(val):
+    v = (val or "").strip()
+    try:
+        return str(int(float(v)))
+    except ValueError:
+        return v
+
+
+def _norm_room_name(name):
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+def _parse_rooms(pairs):
+    """Rooms from the ordered pairs of a 'Room Information' block."""
+    rooms, cur = [], None
+    start = next((k for k, (lab, _) in enumerate(pairs) if lab == "Room Information"), None)
+    if start is None:
+        return []
+    for label, value in pairs[start + 1:]:
+        if re.search(r"Page \d+\s*/\s*\d+$", label):
+            continue  # a page-banner row between pages
+        if re.fullmatch(r"Room \d+", label):
+            if cur:
+                rooms.append(cur)
+            cur = {}
+        elif cur is not None:
+            if label == "Type":
+                cur["name"] = value
+            elif label == "Level":
+                cur["level"] = value
+            elif label == "Description":
+                cur["note"] = value
+            elif label in ("Dimensions", "Size"):
+                cur["size"] = value
+            elif label == "Flooring":
+                cur["flooring"] = value
+    if cur:
+        rooms.append(cur)
+    out, seen = [], set()
+    for r in rooms:
+        name = (r.get("name") or "").strip()
+        if not name or _is_nullish(name):
+            continue
+        level = (r.get("level") or "").strip()
+        # The feed sometimes lists the same room twice, once with a space
+        # in the name ("Bedroom 4") and once without ("Bedroom4").
+        key = (_norm_room_name(name), level.lower())
+        if key in seen and "bath" not in name.lower():
+            continue
+        seen.add(key)
+        out.append({
+            "name": name,
+            "size": (r.get("size") or "").strip(),
+            "level": level,
+            "flooring": (r.get("flooring") or "").strip(),
+        })
+    return out
+
+
+def _enrich_from_property_information(listing, pairs):
+    """Fill still-empty Listing fields from ordered Property Information
+    pairs (see the section comment above)."""
+    first = {}
+    for label, value in pairs:
+        if label and label not in first and value and value.strip().lower() not in ("-", "--"):
+            first[label] = value.strip()
+
+    def g(*keys):
+        for k in keys:
+            v = first.get(k, "")
+            if v and v.strip().lower() not in _UNKNOWN_VALUES:
+                return v
+        return ""
+
+    def yes(*keys):
+        return any(first.get(k, "").strip().lower() in ("yes", "true", "y") for k in keys)
+
+    # --- Coordinates (the sheet prints rooftop-ish lat/lng) ---------------
+    try:
+        lat, lng = float(first.get("Latitude", "")), float(first.get("Longitude", ""))
+        if 24 <= lat <= 50 and -125 <= lng <= -66 and not getattr(listing, "lat", None):
+            listing.lat, listing.lng = lat, lng
+    except ValueError:
+        pass
+
+    if not listing.county and g("County"):
+        listing.county = g("County").title()
+    if not listing.body_of_water and g("Body of Water", "Water Body Name"):
+        listing.body_of_water = g("Body of Water", "Water Body Name")
+    if not listing.school_district and g("High School District", "School District"):
+        listing.school_district = g("High School District", "School District")
+
+    # --- Taxes ------------------------------------------------------------
+    if not listing.tax_amount and g("Tax Annual Amount"):
+        listing.tax_amount = money(g("Tax Annual Amount").split("/")[0].strip())
+    if not listing.tax_year and g("Tax Year"):
+        listing.tax_year = g("Tax Year")
+    # "Tax Assessed Value" on these feeds tracks taxable value (taxes divided
+    # by it gives a normal 40-50 mill rate), so it stands in for "Taxable
+    # Value" when that label isn't printed.
+    if not listing.tax_taxable_value and g("Taxable Value", "Tax Assessed Value"):
+        listing.tax_taxable_value = _num_text(g("Taxable Value", "Tax Assessed Value"))
+    if not listing.tax_sev and g("SEV"):
+        listing.tax_sev = _num_text(g("SEV"))
+    if not listing.homestead_pct and "Homestead" in first:
+        listing.homestead_pct = first["Homestead"].replace("%", "").strip()
+    fee = g("Approx. Assoc Fee", "Association Fee")
+    if fee and not listing.assessment_amount:
+        amt = money(fee.split("/")[0].strip())
+        if amt and amt.replace("$", "").replace(",", "").replace(".", "").strip("0"):
+            listing.assessment_amount = amt
+
+    # --- Parking ----------------------------------------------------------
+    raw_parking = _clean_list(g("Parking Features"))
+    drive = _clean_list(g("Driveway"))
+    spaces = _int_text(g("Garage Spaces"))
+    has_garage = yes("Garage", "Garage Y/N", "Attached Garage") or bool(spaces)
+    if not listing.parking_type and (raw_parking or has_garage):
+        low = raw_parking.lower()
+        if "attached" in low and "detached" not in low or (yes("Attached Garage") and "detached" not in low):
+            listing.parking_type = "Attached Garage"
+        elif "detached" in low:
+            listing.parking_type = "Detached Garage"
+        elif has_garage:
+            listing.parking_type = "Garage"
+        else:
+            listing.parking_type = "Parking"
+    if not listing.parking_spaces and spaces:
+        listing.parking_spaces = spaces
+    if not listing.garage_details:
+        extra = [raw_parking] if raw_parking else []
+        if drive:
+            extra.append(f"Driveway: {drive}")
+        if extra:
+            listing.garage_details = "; ".join(extra)
+
+    # --- Counts -----------------------------------------------------------
+    if not listing.rooms_total and g("Total Rooms", "Room Total"):
+        listing.rooms_total = _int_text(g("Total Rooms", "Room Total"))
+    if not listing.fireplaces and g("Total Fireplaces", "Fireplaces Total"):
+        listing.fireplaces = _int_text(g("Total Fireplaces", "Fireplaces Total"))
+    if not listing.fireplace_details and g("Fireplace Features"):
+        listing.fireplace_details = _clean_list(g("Fireplace Features"))
+
+    # --- Interior ---------------------------------------------------------
+    interior = []
+    if g("Interior Features"):
+        interior.append(_clean_list(g("Interior Features")))
+    if g("Flooring"):
+        interior.append("Flooring: " + _clean_list(g("Flooring")))
+    if g("Window Features"):
+        interior.append("Windows: " + _clean_list(g("Window Features")))
+    if interior and not listing.interior_features:
+        listing.interior_features = "; ".join(interior)
+    if not listing.kitchen_features and g("Kitchen Features"):
+        listing.kitchen_features = _clean_list(g("Kitchen Features"))
+    if not listing.appliances and g("Appliances"):
+        listing.appliances = _clean_list(g("Appliances"))
+    if not listing.laundry and g("Laundry Features"):
+        listing.laundry = _clean_list(g("Laundry Features"))
+
+    # --- Heating / cooling -------------------------------------------------
+    if not listing.heating:
+        heat_src, heat_type = g("Heat Source"), g("Heat Type")
+        if heat_src or heat_type:
+            listing.heating = "; ".join(v for v in (_clean_list(heat_src), _clean_list(heat_type)) if v)
+        elif g("Heating") and g("Heating").lower() not in ("yes", "true"):
+            listing.heating = _clean_list(g("Heating"))
+    if not listing.cooling and g("Cooling", "Air Conditioning"):
+        listing.cooling = _clean_list(g("Cooling", "Air Conditioning"))
+
+    # --- Exterior ---------------------------------------------------------
+    exterior = []
+    if g("Exterior Features"):
+        exterior.append(_clean_list(g("Exterior Features")))
+    porch = g("Patio And Porch Features", "Patio and Porch Features")
+    if porch:
+        exterior.append("Patio/Porch: " + _clean_list(porch))
+    if g("Fencing"):
+        exterior.append("Fencing: " + _clean_list(g("Fencing")))
+    if g("Roof", "Roofing"):
+        exterior.append("Roof: " + _clean_list(g("Roof", "Roofing")))
+    siding = g("Construction Materials", "Exterior Material")
+    if siding:
+        exterior.append("Construction: " + _clean_list(siding))
+    if g("Lot Features"):
+        exterior.append("Lot: " + _clean_list(g("Lot Features")))
+    if g("Landscape"):
+        exterior.append("Landscape: " + _clean_list(g("Landscape")))
+    if g("Other Structures"):
+        exterior.append("Other structures: " + _clean_list(g("Other Structures")))
+    if exterior and not listing.exterior_features:
+        listing.exterior_features = "; ".join(exterior)
+    if not listing.pool and yes("Private Pool"):
+        listing.pool = "Yes"
+    if not listing.water_features and g("Water Fea Amenities", "Water Fea. Amenities"):
+        listing.water_features = _clean_list(g("Water Fea Amenities", "Water Fea. Amenities"))
+
+    # --- Utilities ----------------------------------------------------------
+    if not listing.water_source and g("Water Source", "Water"):
+        listing.water_source = _clean_list(g("Water Source", "Water"))
+    if not listing.sewer_type and g("Sewer"):
+        listing.sewer_type = _clean_list(g("Sewer"))
+
+    # --- Basement ------------------------------------------------------------
+    has_bsmt = yes("Has Basement") or first.get("Basement", "").lower() in ("yes", "true")
+    sub = g("Substructure")
+    if has_bsmt or sub:
+        if not listing.basement or listing.basement == "Yes":
+            listing.basement = _clean_list(sub) if sub else "Yes"
+
+
 def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     listing = Listing(source_filename=source_filename)
 
@@ -587,6 +927,16 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         # cross-page section continuity -- both labels here are unique and
         # don't collide with anything else on this sheet, so this is safe
         # even though it ignores section boundaries entirely.
+        # Property Information pairs (all pages after the first of the
+        # flavor in use), for _enrich_from_property_information() below.
+        info_pairs = []
+        room_pairs = []
+        for i in use_idx[1:]:
+            pg = pdf.pages[i]
+            pw = [w for w in pg.extract_words(extra_attrs=["fontname", "size"]) if w.get("size", 0) >= 6.0]
+            info_pairs.extend(_extract_kv_pairs_by_column(pw, pg.width))
+            room_pairs.extend(_extract_kv_pairs_by_row(pw))
+
         for i in sorted(set(use_idx) | set(agent_idx)):
             if rooms_total_raw and garage_cost_raw:
                 break
@@ -819,6 +1169,10 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         nearby_transit = _parse_transit(transit_lines)
         if nearby_transit:
             listing.nearby_transit = nearby_transit
+
+    _enrich_from_property_information(listing, info_pairs)
+    if not listing.rooms:
+        listing.rooms = _parse_rooms(room_pairs)
 
     _extract_photo(file_bytes, listing)
 
