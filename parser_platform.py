@@ -236,7 +236,7 @@ _BANNER_RE = re.compile(
     r"\$(?P<price>[\d,]+)\s+"
     r"(?P<beds>\d+)\s*BD\s*[•*]\s*(?P<bfull>\d+)\s*BA"
     r"(?:\s*[•*]\s*(?P<bhalf>\d+)\s*1/2\s*BA)?\s*[•*]\s*"
-    r"(?P<sqft>[\d,]+)\s*SF"
+    r"(?P<sqft>[\d,]+|-)\s*SF"
 )
 # The zip capture above is optional because a long enough street/unit/city
 # ("420 East Waterside Drive Unit 2602 Chicago IL 60601") wraps onto a
@@ -323,7 +323,11 @@ def _parse_banner(page1_text):
     out["bedrooms"] = m.group("beds")
     out["bathrooms_full"] = m.group("bfull")
     out["bathrooms_half"] = m.group("bhalf") or "0"
-    out["approx_sf"] = m.group("sqft")
+    # New construction / unmeasured units show "- SF" in the banner (and
+    # "$-/SF") -- the regex above accepts a bare dash so the whole banner
+    # still matches, but the dash itself isn't a value.
+    sqft = m.group("sqft")
+    out["approx_sf"] = "" if sqft == "-" else sqft
     return out
 
 
