@@ -843,6 +843,8 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         pubrecords = {}   # Public Records
         rooms_total_raw = ""
         garage_cost_raw = ""
+        pet_info_raw = ""
+        max_pet_raw = ""
         description = ""
         amenities_text = ""
         schools_lines = []
@@ -942,7 +944,7 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             room_pairs.extend(_extract_kv_pairs_by_row(pw))
 
         for i in sorted(set(use_idx) | set(agent_idx)):
-            if rooms_total_raw and garage_cost_raw:
+            if rooms_total_raw and garage_cost_raw and pet_info_raw and max_pet_raw:
                 break
             page = pdf.pages[i]
             words = page.extract_words(extra_attrs=["fontname", "size"])
@@ -956,6 +958,14 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
                 val = raw.get("Deeded Garage Cost", "")
                 if val and not _is_nullish(val):
                     garage_cost_raw = val
+            if not pet_info_raw:
+                val = raw.get("Pet Information", "")
+                if val and not _is_nullish(val):
+                    pet_info_raw = val
+            if not max_pet_raw:
+                val = raw.get("Max Pet Weight", "")
+                if val and not _is_nullish(val):
+                    max_pet_raw = val
 
     # --- MLS / property basics ---------------------------------------------
     listing.mls_number = details.get("MLS ID", "")
@@ -985,6 +995,28 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
 
     if rooms_total_raw:
         listing.rooms_total = rooms_total_raw
+
+    # Pets -- Key Details' "Pets Allowed" (Yes/No) is on every sheet; the
+    # richer "Pet Information" ("Cats OK,Dogs OK") and "Max Pet Weight"
+    # live in the Property Information section (same raw-grid scan as Num
+    # Of Rooms above, since it can land on a headerless continuation page).
+    # Never read before -- the Pets card was blank on every Home Platform
+    # flyer. A max weight of 999 is the MLS's "no limit" placeholder, so
+    # it's dropped rather than printed as "max 999 lbs".
+    pets_flag = details.get("Pets Allowed", "").strip()
+    pet_types = re.sub(r"\s*,\s*", ", ", pet_info_raw).strip()
+    if pets_flag.lower() == "no":
+        listing.pets_allowed = "No"
+    elif pet_types:
+        listing.pets_allowed = pet_types
+    elif pets_flag and pets_flag != "-":
+        listing.pets_allowed = pets_flag
+    try:
+        wt = float(max_pet_raw.replace(",", ""))
+        if 0 < wt < 999:
+            listing.max_pet_weight = str(int(wt)) if wt == int(wt) else str(wt)
+    except ValueError:
+        pass
 
     # "Deeded Garage Cost" ($35,000.00) -- the field's own name already
     # tells us the ownership type (deeded), so this is built into the same
