@@ -798,7 +798,7 @@ def _enrich_from_property_information(listing, pairs):
             listing.basement = _clean_list(sub) if sub else "Yes"
 
 
-def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
+def _parse_listing_pdf_legacy(file_bytes: bytes, source_filename: str = "") -> Listing:
     listing = Listing(source_filename=source_filename)
 
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
@@ -1417,14 +1417,40 @@ def _enrich_chicago_info(listing, file_bytes):
     return listing
 
 
-_parse_listing_pdf_base = parse_listing_pdf
+_parse_listing_pdf_base = _parse_listing_pdf_legacy
 
 
-def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
+def _parse_listing_pdf_enriched(file_bytes: bytes, source_filename: str = "") -> Listing:
+    """Legacy parser plus the Chicago-style Property Information enrichment."""
     listing = _parse_listing_pdf_base(file_bytes, source_filename)
     try:
         _enrich_chicago_info(listing, file_bytes)
     except Exception:
         # Enrichment is strictly additive -- never let it break a parse.
         pass
+    return listing
+
+
+def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
+    """Home Platform entry point. The classic parser above fills the Listing
+    fields the rest of the app relies on (cover page, map, geocoding, the
+    legacy flyer). On top of that, the shared hp_core parser (the same module
+    the Agent Tour Packet Builder uses) reads the sheet in client-safe mode and
+    its result rides along as `listing.hp`, which render.py uses for the
+    card-style flyer. Strictly additive: if hp_core fails or finds nothing,
+    `listing.hp` stays None and the legacy flyer is used.
+
+    client_safe=True means agent-only data (showing instructions, agent
+    remarks, listing contacts, lockbox, owner of record) is never read into
+    the result, even when an Agent version of the sheet was uploaded."""
+    listing = _parse_listing_pdf_enriched(file_bytes, source_filename)
+    listing.hp = None
+    try:
+        import hp_core
+        recs = hp_core.parse_file(file_bytes, prefer="client", client_safe=True)
+        if recs:
+            listing.hp = recs[0]
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("hp_core failed; using legacy flyer")
     return listing

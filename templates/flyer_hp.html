@@ -1,0 +1,203 @@
+{% set HP_ICONS = {
+ 'pin': '<path d="M12 21s-6-5.6-6-10a6 6 0 1 1 12 0c0 4.4-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/>',
+ 'dollar': '<circle cx="12" cy="12" r="9"/><path d="M14.5 9c-.4-1-1.4-1.5-2.5-1.5-1.5 0-2.5.8-2.5 2s1 1.8 2.5 2 2.5.8 2.5 2-1 2-2.5 2c-1.2 0-2.2-.6-2.6-1.6M12 6v1.5M12 16.5V18"/>',
+ 'door': '<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17M4 21h16"/><circle cx="14.5" cy="12.5" r=".8"/>',
+ 'phone': '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
+ 'bed': '<path d="M3 18V7M3 14h18v4M21 14v-2a3 3 0 0 0-3-3h-7v5"/><circle cx="7" cy="11" r="1.5"/>',
+ 'sofa': '<path d="M5 11V8a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v3M3 13a2 2 0 0 1 4 0v2h10v-2a2 2 0 0 1 4 0v5H3z"/>',
+ 'chef': '<path d="M7 14a3.5 3.5 0 1 1 1-6.8A4 4 0 0 1 16 7.2 3.5 3.5 0 1 1 17 14M7 14v6h10v-6M7 17h10"/>',
+ 'bolt': '<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>',
+ 'tree': '<path d="M12 21v-5M12 3l5 7h-3l4 6H6l4-6H7z"/>',
+ 'car': '<path d="M4 16v-4l2-5h12l2 5v4M4 16h16M4 16v2M20 16v2"/><circle cx="8" cy="13.5" r=".9"/><circle cx="16" cy="13.5" r=".9"/>',
+ 'wave': '<path d="M3 9c2-2 4-2 6 0s4 2 6 0 4-2 6 0M3 14c2-2 4-2 6 0s4 2 6 0 4-2 6 0M3 19c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/>',
+ 'school': '<path d="M2 9l10-5 10 5-10 5zM6 11.5V16c0 1.5 3 3 6 3s6-1.5 6-3v-4.5"/>',
+ 'building': '<path d="M5 21V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v17M15 9h3a1 1 0 0 1 1 1v11M3 21h18M8 7h4M8 11h4M8 15h4"/>',
+ 'doc': '<path d="M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6"/>',
+ 'train': '<rect x="6" y="3" width="12" height="14" rx="3"/><path d="M6 11h12M9 21l2-4M15 21l-2-4"/><circle cx="9.5" cy="14" r=".7"/><circle cx="14.5" cy="14" r=".7"/>',
+ 'clock': '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+ 'ruler': '<path d="M3 17L17 3l4 4L7 21zM8 12l2 2M11 9l2 2M14 6l2 2"/>',
+} %}
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+@font-face { font-family: 'Playfair Display'; src: url('file://{{ font_dir }}/PlayfairDisplay-Reg-Final.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'Playfair Display'; src: url('file://{{ font_dir }}/PlayfairDisplay-Bold-Final.ttf'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'Playfair Display'; src: url('file://{{ font_dir }}/PlayfairDisplay-Italic-Final.ttf'); font-weight: 400; font-style: italic; }
+@font-face { font-family: 'Work Sans'; src: url('file://{{ font_dir }}/WorkSans-Reg-Final.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'Work Sans'; src: url('file://{{ font_dir }}/WorkSans-Med-Final.ttf'); font-weight: 500; font-style: normal; }
+@font-face { font-family: 'Work Sans'; src: url('file://{{ font_dir }}/WorkSans-SemiBold-Final.ttf'); font-weight: 600; font-style: normal; }
+@font-face { font-family: 'Work Sans'; src: url('file://{{ font_dir }}/WorkSans-Bold-Final.ttf'); font-weight: 700; font-style: normal; }
+:root { --blue:#032b42; --ruge:#780000; --slate:#f2f2f2; --ink:#404042; --muted:#6b6b6d; --hair:#d8dcde; --tint:#eaf0f3; }
+* { box-sizing: border-box; }
+@page {
+  size: 8.5in 11in; margin: .42in .5in .6in .5in;
+  counter-increment: packet-page;
+  @bottom-center {
+    content: "{{ l.full_address }}  \2022  Page " counter(packet-page) " of {{ total_pages }}";
+    font-family: 'Work Sans', sans-serif; font-size: 6.6pt; color: var(--muted);
+    padding-top: 6px; border-top: 0.75pt solid #d8dcde; width: 100%;
+  }
+}
+@page :first { counter-reset: packet-page {{ page_offset - 1 }}; }
+body { margin:0; font-family:'Work Sans',sans-serif; color:var(--ink); font-size:8.6pt; line-height:1.38; }
+.mast { display:flex; justify-content:space-between; align-items:center; padding-bottom:7px; border-bottom:1.4pt solid var(--blue); margin-bottom:11px; }
+.lockup-group { display:flex; align-items:center; gap:12px; }
+.lockup-group img.jlg-mark { height:30px; display:block; } .lockup-group img.brokerage-mark { height:22px; display:block; }
+.mastr { text-align:right; font-size:7.4pt; color:var(--muted); }
+.mast.small { font-size:8pt; gap:10px; justify-content:flex-start; margin-bottom:10px; } .mast.small .s-addr { font-weight:700; color:var(--blue); } .mast.small .r { margin-left:auto; color:var(--muted); }
+.hero { display:flex; gap:18px; margin-bottom:11px; }
+.photo { position:relative; flex:0 0 3.6in; height:2.35in; background-size:cover; background-position:center; border-radius:4px; background-color:var(--slate); }
+.chip { position:absolute; left:10px; top:10px; background:var(--blue); color:#fff; font-weight:700; font-size:7.4pt; letter-spacing:.09em; text-transform:uppercase; padding:4px 10px; border-radius:2px; }
+.chip.oh { top:auto; bottom:10px; background:var(--ruge); letter-spacing:.04em; text-transform:none; }
+.hinfo { flex:1; display:block; padding-top:.12in; }
+.addr { font-family:'Playfair Display',serif; font-size:21pt; font-weight:700; color:var(--blue); line-height:1.12; }
+.city { font-size:9.4pt; margin-top:3px; }
+.price { font-family:'Playfair Display',serif; font-size:30pt; font-weight:700; color:var(--blue); margin-top:14px; line-height:1; }
+.psub { font-size:8.4pt; color:var(--ruge); font-weight:600; margin-top:5px; min-height:12px; }
+.meta { font-size:7.8pt; color:var(--muted); margin-top:12px; letter-spacing:.02em; border-top:.75pt solid var(--hair); padding-top:8px; }
+.facts { display:flex; background:var(--blue); color:#fff; border-radius:4px; margin-bottom:11px; }
+.fact { flex:1; text-align:center; padding:9px 4px 8px; border-right:.75pt solid rgba(255,255,255,.18); }
+.fact:last-child { border-right:0; }
+.fact .n { font-family:'Playfair Display',serif; font-weight:700; font-size:13pt; line-height:1.1; }
+.fact .l { font-size:6.4pt; letter-spacing:.14em; text-transform:uppercase; opacity:.78; margin-top:3px; }
+.cols { display:flex; gap:14px; align-items:flex-start; } .cols .col { flex:1; min-width:0; }
+.card { break-inside:avoid; margin:0 0 11px; border:.75pt solid var(--hair); border-radius:4px; overflow:hidden; background:#fff; }
+.card-h { display:flex; align-items:center; gap:6px; background:var(--tint); color:var(--blue); padding:6px 10px; font-weight:700; font-size:7.6pt; letter-spacing:.12em; text-transform:uppercase; border-bottom:.75pt solid var(--hair); }
+.ic { width:13px; height:13px; flex:none; }
+.card-b { padding:6px 10px 7px; }
+.kv { display:flex; gap:8px; padding:2.6px 0; border-bottom:.5pt dotted var(--hair); }
+.kv:last-child { border-bottom:0; }
+.k { flex:0 0 74px; color:var(--muted); font-size:7.6pt; } .v { flex:1; color:var(--ink); font-weight:500; }
+.h { font-weight:700; font-size:8pt; letter-spacing:.14em; text-transform:uppercase; color:var(--blue); border-bottom:1.2pt solid var(--blue); padding-bottom:3px; margin:6px 0 7px; }
+.remarks { font-size:9pt; line-height:1.5; }
+.remarks.tight { font-size:8.3pt; line-height:1.42; }
+.remarks.very-tight { font-size:7.8pt; line-height:1.36; }
+.glance { display:flex; gap:10px; align-items:stretch; margin-bottom:11px; }
+.glance .card { flex:1; margin:0; }
+.glance .k { flex:0 0 58px; }
+.lvls { display:flex; gap:16px; } .lvl { flex:1; }
+.lvl-h { margin-top:4px; font-size:7pt; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--ruge); padding-bottom:3px; margin-bottom:2px; border-bottom:.75pt solid var(--hair); }
+.room { display:flex; justify-content:space-between; padding:2px 0; border-bottom:.5pt dotted var(--hair); } .room .dim { color:var(--muted); font-size:7.8pt; }
+.lvls.one .lvl { display:flex; flex-wrap:wrap; column-gap:22px; }
+.lvls.one .lvl-h { flex:0 0 100%; }
+.lvls.one .room { flex:0 0 calc(50% - 11px); }
+.sch { padding:2px 0; border-bottom:.5pt dotted var(--hair); } .sch:last-child { border-bottom:0; }
+.sch .sn { font-weight:500; } .sch .ss { color:var(--muted); font-size:7.4pt; } .sch .rt { float:right; font-weight:600; }
+.sch.serves .sn { font-weight:700; color:var(--blue); }
+.tr { display:flex; justify-content:space-between; padding:2px 0; border-bottom:.5pt dotted var(--hair); } .tr:last-child { border-bottom:0; }
+.tr .tm { color:var(--muted); white-space:nowrap; padding-left:8px; }
+.hrow { display:flex; gap:8px; padding:1.8px 0; border-bottom:.5pt dotted var(--hair); } .hrow:last-child { border-bottom:0; }
+.hrow .hd { flex:0 0 58px; color:var(--muted); } .hrow .he { flex:1; } .hrow .hp { font-weight:600; }
+.dense .card { margin-bottom:8px; } .dense .kv { padding:1.8px 0; } .dense .card-b { padding:4px 9px 5px; } .dense .card-h { padding:4px 9px; }
+.very-dense .card { margin-bottom:6px; } .very-dense .kv { padding:1.2px 0; font-size:8pt; } .very-dense .card-b { padding:3px 8px 4px; }
+.very-dense .card-h { padding:3px 8px; } .very-dense .sch, .very-dense .tr, .very-dense .hrow { padding:1px 0; }
+.compliance { margin-top:14px; padding-top:9px; border-top:1pt solid var(--hair); break-inside:avoid; page-break-inside:avoid; }
+.compliance .top-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:7px; }
+.compliance .lockup-group-sm { display:flex; align-items:center; gap:8px; }
+.compliance .lockup-group-sm img.jlg-mark { height:22px; display:block; } .compliance .lockup-group-sm img.brokerage-mark { height:16px; display:block; }
+.compliance .bugs { display:flex; gap:6px; align-items:center; }
+.compliance .agent-line { font-size:8pt; color:var(--blue); font-weight:600; text-align:right; }
+.compliance .agent-line .sub { font-weight:400; color:var(--ink); font-size:7.6pt; }
+.compliance .legal { font-size:6.8pt; line-height:1.5; color:var(--muted); }
+.dense .compliance { margin-top:8px; padding-top:6px; } .very-dense .compliance { margin-top:5px; padding-top:4px; } .very-dense .compliance .legal { line-height:1.3; }
+.pagebreak { break-after:page; }
+</style>
+</head>
+<body class="{{ density }}">
+
+{% macro icon(name) -%}<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">{{ (HP_ICONS.get(name) or HP_ICONS['doc'])|safe }}</svg>{%- endmacro %}
+{% macro bucket(b) -%}
+{% if b %}<div class="card"><div class="card-h">{{ icon(b.icon) }}<span>{{ b.title }}</span></div><div class="card-b">
+  {% for row in b.rows %}<div class="kv"><span class="k">{{ row[0] }}</span><span class="v">{{ row[1] }}</span></div>{% endfor %}
+</div></div>{% endif %}
+{%- endmacro %}
+
+{% macro card_by_key(k) -%}
+{% if k == 'rooms' %}{{ rooms_card() }}
+{% elif k == 'schools' %}{% if hp.schools %}
+<div class="card"><div class="card-h">{{ icon('school') }}<span>Schools</span></div><div class="card-b">
+  {% for s in hp.schools %}<div class="sch{{ ' serves' if s.serves }}"><span class="rt">{{ s.rating }}</span><div class="sn">{{ s.name }}</div><div class="ss">{{ s.grades }}{% if s.note %} &middot; {{ s.note }}{% endif %}</div></div>{% endfor %}
+</div></div>{% endif %}
+{% elif k == 'transit' %}{% if hp.transit %}
+<div class="card"><div class="card-h">{{ icon('train') }}<span>Nearby Transit</span></div><div class="card-b">
+  {% for t in hp.transit %}<div class="tr"><span>{{ t.name }}</span><span class="tm">{{ t.minutes }} min</span></div>{% endfor %}
+</div></div>{% endif %}
+{% elif k == 'history' %}{% if history %}
+<div class="card"><div class="card-h">{{ icon('clock') }}<span>Sale History</span></div><div class="card-b">
+  {% for h in history %}<div class="hrow"><span class="hd">{{ h.date }}</span><span class="he">{{ h.event }}</span><span class="hp">{{ h.price }}</span></div>{% endfor %}
+</div></div>{% endif %}
+{% else %}{{ bucket(B.get(k)) }}{% endif %}
+{%- endmacro %}
+
+{% macro rooms_card() -%}
+{% if rooms_by_level %}
+<div class="card"><div class="card-h">{{ icon('door') }}<span>Rooms</span></div><div class="card-b">
+  {% for lv, rs in rooms_by_level %}
+    {% if rooms_by_level|length > 1 %}<div class="lvl-h">{{ lv }}{{ ' level' if lv != 'Rooms' }}</div>{% endif %}
+    {% for r in rs %}<div class="room"><span>{{ r.name }}</span><span class="dim">{{ r.dims }}</span></div>{% endfor %}
+  {% endfor %}
+</div></div>
+{% endif %}
+{%- endmacro %}
+
+<div class="mast">
+  <div class="lockup-group"><img class="jlg-mark" src="file://{{ logo_jlg }}"><img class="brokerage-mark" src="file://{{ logo_brokerage }}"></div>
+  <div class="mastr">MLS #{{ hp.mls_number }}<br>Prepared for you by {{ agent_name }}</div>
+</div>
+
+<div class="hero">
+  <div class="photo"{% if photo_path %} style="background-image:url('file://{{ photo_path }}');"{% endif %}>
+    {% if status_label %}<span class="chip">{{ status_label }}</span>{% endif %}
+    {% if l.open_house %}<span class="chip oh">Open house &middot; {{ l.open_house }}</span>{% endif %}
+  </div>
+  <div class="hinfo">
+    <div class="addr">{{ hp.address.line1 }}</div>
+    <div class="city">{{ hp.address.city }}, {{ hp.address.state }} {{ hp.address.zip }}{% if hp.county %} &nbsp;&middot;&nbsp; {{ hp.county }} County{% endif %}</div>
+    <div class="price">{{ hp.list_price }}</div>
+    <div class="psub">{{ price_sub }}</div>
+    <div class="meta">{{ meta_line }}<br>MLS #{{ hp.mls_number }}</div>
+  </div>
+</div>
+
+<div class="facts">{% for n, lbl in facts %}<div class="fact"><div class="n">{{ n }}</div><div class="l">{{ lbl }}</div></div>{% endfor %}</div>
+
+<div class="glance">{{ bucket(B.get('price')) }}{{ bucket(B.get('location')) }}{{ bucket(B.get('know')) }}</div>
+
+{% if hp.description %}
+<div class="h">About this home</div>
+<div class="remarks {{ remarks_class }}">{{ hp.description }}</div>
+{% endif %}
+
+
+
+{% if p1_cols %}
+<div class="cols" style="margin-top:10px;">
+  <div class="col">{% for k in p1_cols[0] %}{{ card_by_key(k) }}{% endfor %}</div>
+  <div class="col">{% for k in p1_cols[1] %}{{ card_by_key(k) }}{% endfor %}</div>
+</div>
+{% endif %}
+<div class="pagebreak"></div>
+<div class="cols">
+  <div class="col">{% for k in p2_cols[0] %}{{ card_by_key(k) }}{% endfor %}</div>
+  <div class="col">{% for k in p2_cols[1] %}{{ card_by_key(k) }}{% endfor %}</div>
+</div>
+
+<div class="compliance">
+  <div class="top-row">
+    <div class="lockup-group-sm"><img class="jlg-mark" src="file://{{ logo_jlg }}"><img class="brokerage-mark" src="file://{{ logo_brokerage }}"></div>
+    <div class="bugs">
+      <svg width="17" height="17" viewBox="0 0 24 24"><rect width="24" height="24" fill="none"/><path d="M12 2 1 11h3v10h6v-6h4v6h6V11h3z" fill="#404042"/></svg>
+      <svg width="17" height="17" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="none" stroke="#404042" stroke-width="1.4"/><text x="12" y="17" text-anchor="middle" font-size="13" font-family="Work Sans" font-weight="700" fill="#404042">R</text></svg>
+    </div>
+    <div class="agent-line">{{ agent_name }}<div class="sub">{{ agent_phone }}{% if agent_phone and agent_email %} &nbsp;&middot;&nbsp; {% endif %}{{ agent_email }}</div></div>
+  </div>
+  <div class="legal">
+    {% if l.list_broker_name %}Listing courtesy of {{ l.list_broker_name }}{% if l.list_brokerage %}, {{ l.list_brokerage }}{% endif %}. {% endif %}
+    Information deemed reliable but not guaranteed and should be independently verified, MLS #{{ hp.mls_number }}. This office is independently owned and operated.
+    Prepared {{ prepared_date }} using public MLS data.
+  </div>
+</div>
+</body>
+</html>

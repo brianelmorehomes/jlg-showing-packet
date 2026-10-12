@@ -693,6 +693,139 @@ def feature_columns(listing, water_features_display_val, water_utilities_display
     return col1, col2
 
 
+
+# ---------------------------------------------------------------------------
+# Card-style flyer for Home Platform listings (shared parser: hp_core.py)
+# ---------------------------------------------------------------------------
+
+_LEVEL_ORDER = ["Main", "First", "Second", "Upper", "Third", "Lower", "Basement"]
+
+
+def _fmt_int(v):
+    try:
+        return "{:,.0f}".format(float(str(v).replace(",", "")))
+    except Exception:
+        return str(v or "")
+
+
+def hp_flyer_context(listing, density="", fill_page1=False):
+    """Everything flyer_hp.html needs beyond the parsed record itself."""
+    hp = listing.hp
+    B = {b["key"]: b for b in hp.get("buckets", []) if not b.get("agent_only")}
+    f = hp.get("facts") or {}
+    condo = bool(hp.get("is_condo"))
+
+    def row(bucket, label):
+        for lbl, val in (B.get(bucket) or {}).get("rows", []):
+            if lbl == label:
+                return val
+        return ""
+
+    baths = hp.get("baths_full") or ""
+    if baths and hp.get("baths_half") not in (None, "", "0"):
+        baths = f"{baths}.{hp['baths_half']}" if hp["baths_half"] == "1" else f"{baths} + {hp['baths_half']} half"
+    sqft = hp.get("sqft") or listing.approx_sf or ""
+    ptype = (f.get("parking_type") or "").lower()
+    pn = f.get("parking_spaces", "")
+    park = (f"{pn} garage" if pn else "Garage") if "garage" in ptype else (f"{pn} space" + ("s" if pn not in ("", "1") else "") if pn else ("Parking" if ptype else ""))
+    facts = [(hp.get("beds"), "Beds"), (baths, "Baths"), (_fmt_int(sqft) if sqft else "", "Sq Ft")]
+    if condo:
+        floor, tot = f.get("unit_floor", ""), f.get("total_stories", "")
+        facts.append((f"{floor} of {tot}" if floor and tot else floor, "Floor"))
+        facts.append((f"{f['hoa_amount']}/mo" if f.get("hoa_amount") and (f.get("hoa_freq") or "monthly") == "monthly"
+                      else (f.get("hoa_amount") or ""), "HOA"))
+    else:
+        facts.append((f.get("lot_size", ""), "Lot"))
+        facts.append((row("size", "Stories"), "Stories"))
+    facts += [(hp.get("year_built"), "Built"), (park, "Parking")]
+    facts = [(str(n), l) for n, l in facts if n]
+
+    price_sub = hp.get("price_note") or hp.get("price_per_sqft") or ""
+    meta = hp.get("property_type") or ""
+    style = (hp.get("architectural_style") or "").strip()
+    if style:
+        meta = f"{meta} · {style}" if meta else style
+
+    # Sale history: client-facing flyer shows real listing/sale milestones only.
+    hist, seen = [], set()
+    for h in hp.get("history", []):
+        ev = (h.get("event") or "")
+        base = ev.split(" (")[0]
+        if base not in ("Listed", "Sold", "Price Change"):
+            continue
+        key = (h.get("date"), base)
+        if key in seen:
+            continue
+        seen.add(key)
+        hist.append({"date": h.get("date", ""), "price": h.get("price", ""),
+                     "event": ev.replace(" (Active)", "").replace(" (Public Record)", " (public record)")})
+    cap = {"": 6, "dense": 5, "very-dense": 4}.get(density, 6)
+    hist = hist[:cap]
+
+    levels = {}
+    for r in hp.get("rooms", []):
+        levels.setdefault(r.get("level") or "Rooms", []).append(r)
+    rooms_by_level = sorted(levels.items(), key=lambda kv: _LEVEL_ORDER.index(kv[0]) if kv[0] in _LEVEL_ORDER else 9)
+
+    n = len(hp.get("description") or "")
+    remarks_class = "very-tight" if n > 2000 else ("tight" if n > 1400 else "")
+    hp_view = dict(hp)
+    if density:
+        # Tighter tiers also trim the longest low-value lists.
+        sc = {"dense": 5, "very-dense": 4}[density]
+        tr = {"dense": 4, "very-dense": 3}[density]
+        serves = [s for s in hp.get("schools", []) if s.get("serves")]
+        rest = [s for s in hp.get("schools", []) if not s.get("serves")]
+        hp_view["schools"] = (serves + rest)[:sc]
+        hp_view["transit"] = hp.get("transit", [])[:tr]
+    def est_height(key):
+        """Rough rendered height (inches) of one card, to balance the two
+        columns. Slight over/under-estimates only skew the balance, never
+        break layout."""
+        import math
+        head = 0.62
+        if key == "rooms":
+            n_rows = len(hp.get("rooms", []))
+            lvls = len(rooms_by_level) if len(rooms_by_level) > 1 else 0
+            return head + n_rows * 0.205 + lvls * 0.2 if n_rows else 0
+        if key == "schools":
+            return head + len(hp_view.get("schools", [])) * 0.36 if hp_view.get("schools") else 0
+        if key == "transit":
+            return head + len(hp_view.get("transit", [])) * 0.215 if hp_view.get("transit") else 0
+        if key == "history":
+            return head + len(hist) * 0.2 if hist else 0
+        b = B.get(key)
+        if not b:
+            return 0
+        h = head
+        for _lbl, val in b["rows"]:
+            h += max(1, math.ceil(len(str(val)) / 36.0)) * 0.165 + 0.06
+        return h
+
+    def split_cols(keys):
+        left, right, hl, hr = [], [], 0.0, 0.0
+        for k in keys:
+            h = est_height(k)
+            if not h:
+                continue
+            if hl <= hr:
+                left.append(k); hl += h
+            else:
+                right.append(k); hr += h
+        return [left, right]
+
+    order = ["interior", "rooms", "kitchen", "systems", "outdoors", "building", "parking", "water", "public",
+             "schools", "transit", "history"]
+    if fill_page1 and n < 1100:
+        p1_cols = split_cols(["interior", "rooms"])
+        p2_cols = split_cols([k for k in order if k not in ("interior", "rooms")])
+    else:
+        p1_cols = None
+        p2_cols = split_cols(order)
+    return dict(B=B, hp=hp_view, p1_cols=p1_cols, p2_cols=p2_cols, facts=facts, price_sub=price_sub, meta_line=meta, history=hist,
+                rooms_by_level=rooms_by_level, remarks_class=remarks_class)
+
+
 def render_flyer(
     listing,
     output_path,
@@ -822,6 +955,33 @@ def render_flyer(
                 im.save(photo_path, format="JPEG", quality=90, dpi=(96, 96))
         except Exception:
             pass
+
+    if getattr(listing, "hp", None):
+        # Home Platform listing parsed by the shared hp_core: card-style flyer.
+        hp_tmpl = env.get_template("flyer_hp.html")
+        status = "Private Listing" if is_private_listing(listing) else (listing.hp.get("status") or status_label_for(listing))
+        attempts = [("", False), ("dense", False), ("very-dense", False)]
+        for density, fill in attempts:
+            ctx = hp_flyer_context(listing, density, fill)
+            html_str = hp_tmpl.render(
+                l=listing, font_dir=FONT_DIR, logo_jlg=JLG_BLOCK,
+                logo_brokerage=BROKERAGE_LOCKUP_BW if print_safe_logo else BROKERAGE_LOCKUP,
+                photo_path=photo_path, status_label=status, agent_phone=agent_phone,
+                agent_email=agent_email, agent_name=agent_name or "Brian Elmore",
+                prepared_date=datetime.date.today().strftime("%B %-d, %Y"),
+                page_offset=page_offset, total_pages=total_pages, density=density, **ctx)
+            HTML(string=html_str, base_url=BASE_DIR).write_pdf(output_path)
+            try:
+                doc = fitz.open(output_path)
+                pc = doc.page_count
+                doc.close()
+            except Exception:
+                break
+            if pc <= 2:
+                break
+        if tmp_photo:
+            os.unlink(tmp_photo.name)
+        return output_path
 
     lead, rest = split_remarks(listing.remarks)
     size_class = remarks_size_class(listing.remarks)
