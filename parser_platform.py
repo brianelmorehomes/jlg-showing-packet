@@ -1213,3 +1213,218 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
     _extract_photo(file_bytes, listing)
 
     return listing
+
+
+# ---------------------------------------------------------------------------
+# Chicago-style "Property Information" enrichment (Sept/Oct 2026)
+# ---------------------------------------------------------------------------
+# Reads buyer-relevant fields the main parser above never looked at, from
+# the "Property Information" and "Room Information" pages of MRED-sourced
+# Home Platform sheets: HOA fee inclusions, appliances, bath amenities,
+# flooring/closets, fireplace location, exposure, possession, multiple
+# parcels, and the room-by-room dimensions ("Kitchen Dimensions 19X9",
+# which the "Room 1 / Room 2" Michigan-style parser doesn't recognize).
+# Implemented as a post-pass wrapper (see parse_listing_pdf at the bottom)
+# rather than edits inside the main function, and only ever FILLS fields
+# that are still empty, so it can't override anything the main parser
+# already found. Uses its own column-aware pair reader (a long value like
+# "Appliances" wraps onto the next row in its column, and a flat row-based
+# reader glues that continuation onto whatever sits at the same height in
+# the other column -- seen on a real sample: "Water = Public Refrigerator,
+# Washer,..." where the Appliances list had wrapped).
+
+def _pi_pairs_by_column(words, page_width, row_tol=3):
+    mid = page_width * 0.49
+    pairs = []
+    for col in (0, 1):
+        cw = [w for w in words if (w["x0"] >= mid) == bool(col)]
+        cw.sort(key=lambda w: (w["top"], w["x0"]))
+        rows, cur, cur_top = [], [], None
+        for w in cw:
+            if cur_top is None or abs(w["top"] - cur_top) <= row_tol:
+                cur.append(w)
+                cur_top = w["top"] if cur_top is None else cur_top
+            else:
+                rows.append(cur)
+                cur, cur_top = [w], w["top"]
+        if cur:
+            rows.append(cur)
+        for row in rows:
+            row.sort(key=lambda w: w["x0"])
+            flags = ["Bold" in (w.get("fontname") or "") for w in row]
+            if not any(flags):
+                if pairs and pairs[-1][1]:
+                    cont = " ".join(w["text"] for w in row)
+                    prev = pairs[-1][1]
+                    glue = "" if (prev[-1].isalpha() and cont[0].islower()) else " "
+                    pairs[-1] = (pairs[-1][0], prev + glue + cont)
+                continue
+            label, value, mode = [], [], None
+            for w, b in zip(row, flags):
+                if b:
+                    if mode == "value":
+                        pairs.append((" ".join(label), " ".join(value)))
+                        label, value = [], []
+                    mode = "label"
+                    label.append(w["text"])
+                else:
+                    mode = "value"
+                    value.append(w["text"])
+            pairs.append((" ".join(label), " ".join(value)))
+    return pairs
+
+
+def _pi_list(val):
+    """'Dishwasher,High EndHood,Gas Cooktop' -> 'Dishwasher, High End Hood,
+    Gas Cooktop' (the feed runs words together at some comma-less joins)."""
+    val = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", val or "")
+    parts = [p.strip() for p in re.split(r",(?![^(]*\))", val) if p.strip()]
+    return ", ".join(parts)
+
+
+def _pi_rooms(page_words):
+    """Rooms from "<Room> Information" subsections: each bold underlined
+    subheading ("Kitchen Information") starts a room; its Level/
+    Dimensions rows follow. Rooms with no real size are skipped (the
+    sheet lists every possible bedroom/room slot, mostly "N/A")."""
+    rows = []
+    for words in page_words:
+        w2 = sorted(words, key=lambda w: (round(w["top"] / 3), w["x0"]))
+        cur, cur_top = [], None
+        for w in sorted(words, key=lambda w: (w["top"], w["x0"])):
+            if cur_top is None or abs(w["top"] - cur_top) <= 3:
+                cur.append(w)
+                cur_top = w["top"] if cur_top is None else cur_top
+            else:
+                rows.append(cur)
+                cur, cur_top = [w], w["top"]
+        if cur:
+            rows.append(cur)
+    rooms, cur_room, in_info = [], None, False
+    for row in rows:
+        row.sort(key=lambda w: w["x0"])
+        bold = ["Bold" in (w.get("fontname") or "") for w in row]
+        text = " ".join(w["text"] for w in row)
+        if re.fullmatch(r"Room Information", text):
+            in_info = True
+            continue
+        if not in_info:
+            continue
+        if text.strip() == "Agent":
+            break
+        if all(bold) and text.endswith(" Information") and len(row) <= 5:
+            if cur_room:
+                rooms.append(cur_room)
+            name = text[: -len(" Information")].replace("#", "").strip()
+            cur_room = {"name": name, "size": "", "level": "", "flooring": ""}
+            continue
+        if cur_room is None:
+            continue
+        label, value, mode, pairs = [], [], None, []
+        for w, b in zip(row, bold):
+            if b:
+                if mode == "value":
+                    pairs.append((" ".join(label), " ".join(value)))
+                    label, value = [], []
+                mode = "label"
+                label.append(w["text"])
+            else:
+                mode = "value"
+                value.append(w["text"])
+        pairs.append((" ".join(label), " ".join(value)))
+        for lab, val in pairs:
+            low = lab.lower()
+            if "dimensions" in low and val:
+                cur_room["size"] = val
+            elif low.endswith("level") and val:
+                cur_room["level"] = val
+            elif "flooring" in low and val:
+                cur_room["flooring"] = val
+    if cur_room:
+        rooms.append(cur_room)
+    out = []
+    for r in rooms:
+        size = r["size"].strip()
+        if not size or size.upper() in ("N/A", "NA", "-"):
+            continue
+        if size.upper() == "COMBO":
+            size = "Combo"
+        level = "" if r["level"].upper() in ("N/A", "NA", "-") else r["level"]
+        out.append({"name": r["name"], "size": size, "level": level, "flooring": r["flooring"]})
+    return out
+
+
+def _enrich_chicago_info(listing, file_bytes):
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        kinds = [_page_kind(p.extract_text() or "") for p in pdf.pages]
+        idx = [i for i, k in enumerate(kinds) if k]
+        pairs, page_words = [], []
+        for i in idx:
+            pg = pdf.pages[i]
+            words = [w for w in pg.extract_words(extra_attrs=["fontname", "size"]) if w.get("size", 0) >= 6.0]
+            pairs.extend(_pi_pairs_by_column(words, pg.width))
+            page_words.append(words)
+    first = {}
+    for lab, val in pairs:
+        if lab and lab not in first and val and val.strip() not in ("-", "--"):
+            first[lab] = val.strip()
+
+    def g(key):
+        v = first.get(key, "")
+        return "" if _is_nullish(v) else v
+
+    if not listing.assessment_includes and g("Association Fee Includes"):
+        listing.assessment_includes = _pi_list(g("Association Fee Includes"))
+    if not listing.appliances and g("Appliances"):
+        listing.appliances = _pi_list(g("Appliances"))
+    if not listing.bath_amenities and g("Bath Amenities"):
+        listing.bath_amenities = _pi_list(g("Bath Amenities"))
+
+    # Interior: flooring + in-unit extras, folded into the one Interior card
+    interior = []
+    if g("Interior Property Features"):
+        interior.append(_pi_list(g("Interior Property Features")))
+    if g("Flooring"):
+        interior.append("Flooring: " + _pi_list(g("Flooring")))
+    expo = g("Front Exposure")
+    if expo:
+        listing.exposure = listing.exposure or expo
+        interior.append("Exposure: " + _pi_list(expo))
+    have = listing.interior_features or ""
+    interior = [x for x in interior if x and x.lower() not in have.lower()]
+    if interior:
+        listing.interior_features = "; ".join(([have] if have else []) + interior)
+
+    # Fireplace: append the room when the type is already known
+    loc = g("Fireplace Location")
+    if loc and listing.fireplace_details and loc.lower() not in listing.fireplace_details.lower():
+        listing.fireplace_details = f"{listing.fireplace_details}, {_pi_list(loc)}"
+    elif loc and not listing.fireplace_details:
+        listing.fireplace_details = _pi_list(loc)
+
+    if not listing.possession and g("Possession"):
+        listing.possession = g("Possession")
+    if not listing.mult_pins and first.get("Additional Parcels", "").lower() == "yes":
+        listing.mult_pins = "Yes"
+    sa = first.get("Special Assessments", "")
+    if not listing.special_assessments and "$" in sa:
+        listing.special_assessments = sa
+
+    if not listing.rooms:
+        rooms = _pi_rooms(page_words)
+        if rooms:
+            listing.rooms = rooms
+    return listing
+
+
+_parse_listing_pdf_base = parse_listing_pdf
+
+
+def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
+    listing = _parse_listing_pdf_base(file_bytes, source_filename)
+    try:
+        _enrich_chicago_info(listing, file_bytes)
+    except Exception:
+        # Enrichment is strictly additive -- never let it break a parse.
+        pass
+    return listing
