@@ -41,7 +41,7 @@ import re
 
 import pdfplumber
 
-HP_CORE_VERSION = "1.0.1"
+HP_CORE_VERSION = "1.0.2"
 
 # ---------------------------------------------------------------------------
 # Low-level reading
@@ -202,7 +202,8 @@ def nullish(v):
 
 
 def clist(v):
-    parts = [p.strip() for p in re.split(r",(?![^(]*\))", v or "") if p.strip()]
+    # split on commas, but never inside a thousands separator ("8,712 SF")
+    parts = [p.strip() for p in re.split(r"(?<!\d),(?![^(]*\))|,(?!\d{3}(?!\d))(?![^(]*\))", v or "") if p.strip()]
     return ", ".join(parts)
 
 
@@ -484,7 +485,8 @@ BUCKETS = [
 
 _NOISE_LABEL = re.compile(
     r"(Level$|Dimensions$|^\$-?[\d,.]*\s*/\s*SF|^DOM$|^Owner Name$|Association Fee Frequency|Unit Floor Level|"
-    r"Building/Complex|Parcel Identification|^Total # Units|^Age$|^Air Conditioning$|^Construction$|Disability Access)", re.I)
+    r"Building/Complex|Parcel Identification|^Total # Units|^Age$|^Air Conditioning$|^Construction$|Disability Access|"
+    r"^Description$)", re.I)
 
 # Labels that carry no buyer or agent value (system flags, counters, unit
 # echoes, placeholder text). Never shown, not even under "Other".
@@ -944,7 +946,8 @@ def parse_sheet(pdf, page_idxs, banner, client_safe=False):
     cost = g("Deeded Garage Cost")
     incl = P.get("Parking Included in Price", "")
     used.add("Parking Included in Price")
-    row("parking", "Parking", f"{n} · {pk_type}" if n and pk_type else pk_type)
+    # A bare "Parking" label adds nothing; the Details row says what it is.
+    row("parking", "Parking", f"{n} · {pk_type}" if n and pk_type else ("" if pk_type == "Parking" else pk_type))
     _det = ", ".join(x.strip() for x in (pk_det or pk_feat).split(",") if x.strip() and x.strip().lower() not in ("yes", "no"))
     row("parking", "Details", _det)
     drive = clist(g("Driveway"))
@@ -1044,6 +1047,8 @@ def parse_sheet(pdf, page_idxs, banner, client_safe=False):
                 continue
             if k.startswith(("Co List", "List ")) or k in ("Agent Name", "Email", "Mobile", "Office", "DRE", "Brokerage"):
                 continue
+            if _clean(v).lower() in ("square feet", "sq ft", "sqft", "acres"):
+                continue  # a bare unit with no number is a mis-paired cell
             row("other", k, clist(v) if "," in v and len(v) < 120 else v)
 
     out["buckets"] = [

@@ -737,7 +737,7 @@ def hp_flyer_context(listing, density="", fill_page1=False):
     sqft = hp.get("sqft") or listing.approx_sf or ""
     ptype = (f.get("parking_type") or "").lower()
     pn = f.get("parking_spaces", "")
-    park = (f"{pn} garage" if pn else "Garage") if "garage" in ptype else (f"{pn} space" + ("s" if pn not in ("", "1") else "") if pn else ("Parking" if ptype else ""))
+    park = (f"{pn} garage" if pn else "Garage") if "garage" in ptype else (f"{pn} space" + ("s" if pn not in ("", "1") else "") if pn else "")
     facts = [(hp.get("beds"), "Beds"), (baths, "Baths"), (_fmt_int(sqft) if sqft else "", "Sq Ft")]
     if condo:
         floor, tot = f.get("unit_floor", ""), f.get("total_stories", "")
