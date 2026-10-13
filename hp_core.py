@@ -41,7 +41,7 @@ import re
 
 import pdfplumber
 
-HP_CORE_VERSION = "1.0.0"
+HP_CORE_VERSION = "1.0.1"
 
 # ---------------------------------------------------------------------------
 # Low-level reading
@@ -180,6 +180,21 @@ _NULLISH = {"", "-", "--", "none", "n/a", "na", "null", "unknown", "false", "no"
 
 def _clean(v):
     return re.sub(r"\s+", " ", (v or "").strip())
+
+
+def tidy_mls_text(v):
+    """Repair run-together MLS pick-list values, e.g. the sheet prints
+    "Close Plus30Days,See Remarks" and "Cash,Conventional,Va Loan". Adds the
+    missing spaces (after commas, around embedded numbers) and fixes a few
+    well-known acronyms. Leaves numbers like "$1,224" and emails untouched."""
+    v = _clean(v)
+    if not v:
+        return v
+    v = re.sub(r"([a-z])(\d+)([A-Z])", r"\1 \2 \3", v)   # Plus30Days -> Plus 30 Days
+    v = re.sub(r",(?=[A-Za-z])", ", ", v)                    # a,b -> a, b
+    v = re.sub(r"\bVa Loan\b", "VA Loan", v)
+    v = re.sub(r"\bFha\b", "FHA", v)
+    return v
 
 
 def nullish(v):
@@ -581,7 +596,7 @@ def parse_sheet(pdf, page_idxs, banner, client_safe=False):
     B = {key: [] for key, *_ in BUCKETS}
 
     def row(bucket, label, value):
-        value = _clean(value) if isinstance(value, str) else value
+        value = tidy_mls_text(value) if isinstance(value, str) else value
         if value and not nullish(value):
             B[bucket].append([label, value])
 

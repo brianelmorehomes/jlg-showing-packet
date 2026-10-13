@@ -228,6 +228,16 @@ def parking_note(listing):
     return " — ".join(parts)
 
 
+def _tidy_mls(v):
+    """Space out run-together MLS pick-list text ("Close Plus30Days,See
+    Remarks"); falls back to the raw value if the shared parser is absent."""
+    try:
+        from hp_core import tidy_mls_text
+        return tidy_mls_text(v)
+    except Exception:
+        return v
+
+
 def market_time_display(listing):
     """Combine list date and days-on-market into one compact header line --
     both signal how fresh a listing is, so they belong together rather than
@@ -255,7 +265,7 @@ def market_time_display(listing):
     # short enough to fold into this one header line rather than earning
     # its own card.
     if listing.possession:
-        parts.append(f"Possession: {listing.possession}")
+        parts.append(f"Possession: {_tidy_mls(listing.possession)}")
     return " · ".join(parts)
 
 
