@@ -971,6 +971,13 @@ def render_flyer(
         hp_tmpl = env.get_template("flyer_hp.html")
         status = "Private Listing" if is_private_listing(listing) else (listing.hp.get("status") or status_label_for(listing))
         attempts = [("", False), ("dense", False), ("very-dense", False)]
+        # Long remarks essentially never fit page 2 at the roomy tier (every
+        # sample 1,400+ characters overflowed it), and each wasted attempt is
+        # a full WeasyPrint layout -- slow on Render's free tier. Start at the
+        # tier that is likely to fit; the loop still verifies the page count
+        # and only ever moves to a tighter tier.
+        _desc_len = len((listing.hp or {}).get("description") or "")
+        attempts = attempts[2 if _desc_len >= 1800 else 1 if _desc_len >= 1400 else 0:]
         for attempt_no, (density, fill) in enumerate(attempts):
             ctx = hp_flyer_context(listing, density, fill)
             html_str = hp_tmpl.render(
