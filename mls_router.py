@@ -24,6 +24,12 @@ import io
 
 import pdfplumber
 
+try:  # parse each upload's PDF once, not once per parser
+    import hp_core as _hp_core
+    _hp_core.install_pdf_cache()
+except Exception:  # pragma: no cover - optimization only
+    pass
+
 from parser import parse_listing_pdf as _parse_mred
 from parser_michric import parse_listing_pdf as _parse_michric, is_michric
 from parser_platform import parse_listing_pdf as _parse_platform, is_new_platform

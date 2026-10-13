@@ -108,18 +108,38 @@ def split_into_listing_pdfs(file_bytes):
     ordinary single-listing upload this returns `[file_bytes]` unchanged --
     the common case is a no-op, and downstream parsing doesn't need to know
     whether a split happened."""
+    page_mls = []
+    page_starts = []
     try:
-        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-            page_mls = []
-            page_starts = []
-            for page in pdf.pages:
-                text = page.extract_text() or ""
-                m = re.search(r"MLS #:\s*(\d+)", text)
+        # Fast path: PyMuPDF reads the same two signals ~30x faster than
+        # pdfminer's full layout pass (a 30-page batch took ~7s that way,
+        # and this runs on every preview AND every build). Checked against
+        # the pdfplumber path on every sample sheet (MRED, Home Platform
+        # Chicago and Michigan): identical results.
+        import fitz
+        fdoc = fitz.open(stream=file_bytes, filetype="pdf")
+        try:
+            for fpage in fdoc:
+                m = re.search(r"MLS #:\s*(\d+)", fpage.get_text("text") or "")
                 page_mls.append(m.group(1) if m else None)
-                hp = re.search(r"\bPage\s+(\d+)\s*/\s*(\d+)\b", text[:600])
+                top = fpage.get_text(
+                    "text", clip=fitz.Rect(0, 0, fpage.rect.width, fpage.rect.height * 0.12)) or ""
+                hp = re.search(r"\bPage\s+(\d+)\s*/\s*(\d+)\b", top)
                 page_starts.append(bool(hp and int(hp.group(1)) == 1))
+        finally:
+            fdoc.close()
     except Exception:
-        return [file_bytes]
+        page_mls, page_starts = [], []
+        try:
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                for page in pdf.pages:
+                    text = page.extract_text() or ""
+                    m = re.search(r"MLS #:\s*(\d+)", text)
+                    page_mls.append(m.group(1) if m else None)
+                    hp = re.search(r"\bPage\s+(\d+)\s*/\s*(\d+)\b", text[:600])
+                    page_starts.append(bool(hp and int(hp.group(1)) == 1))
+        except Exception:
+            return [file_bytes]
 
     groups = []
     current_mls = None

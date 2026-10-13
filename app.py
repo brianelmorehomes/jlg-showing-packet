@@ -534,7 +534,12 @@ def generate():
 
     ordered_items = []
     for entry in order:
-        blob = get_blob(entry.get("file_index"), entry.get("sub_index", 0))
+        try:
+            blob = get_blob(entry.get("file_index"), entry.get("sub_index", 0))
+        except Exception:
+            # An unreadable upload shouldn't 500 the whole build.
+            traceback.print_exc()
+            continue
         if blob is None:
             continue
         try:

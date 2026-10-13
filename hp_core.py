@@ -41,7 +41,7 @@ import re
 
 import pdfplumber
 
-HP_CORE_VERSION = "1.0.2"
+HP_CORE_VERSION = "1.1.0"
 
 # ---------------------------------------------------------------------------
 # Low-level reading
@@ -180,6 +180,58 @@ _NULLISH = {"", "-", "--", "none", "n/a", "na", "null", "unknown", "false", "no"
 
 def _clean(v):
     return re.sub(r"\s+", " ", (v or "").strip())
+
+
+def install_pdf_cache():
+    """Speed-up for the web apps: several parsers (sniffing, the classic
+    parser, enrichment, this module) each open the SAME uploaded bytes with
+    pdfplumber, and pdfminer's layout pass is the slowest step by far. This
+    swaps pdfplumber.open for a wrapper that, for io.BytesIO / bytes input,
+    keeps the most recently parsed PDF and hands it back to later callers
+    (their `with` blocks no longer close it). One entry only, so memory
+    stays flat. Safe to call more than once."""
+    import hashlib
+    import pdfplumber
+    if getattr(pdfplumber, "_jlg_pdf_cache", False):
+        return
+    orig_open = pdfplumber.open
+    state = {"key": None, "pdf": None}
+
+    class _Shared:
+        def __init__(self, pdf):
+            self._pdf = pdf
+
+        def __getattr__(self, name):
+            return getattr(self._pdf, name)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def close(self):
+            pass
+
+    def cached_open(fp, *args, **kwargs):
+        if not args and not kwargs and isinstance(fp, (bytes, io.BytesIO)):
+            data = fp if isinstance(fp, bytes) else fp.getvalue()
+            key = hashlib.md5(data).hexdigest()
+            if state["key"] != key:
+                old = state["pdf"]
+                state["pdf"], state["key"] = None, None
+                if old is not None:
+                    try:
+                        old.close()
+                    except Exception:
+                        pass
+                state["pdf"] = orig_open(io.BytesIO(data))
+                state["key"] = key
+            return _Shared(state["pdf"])
+        return orig_open(fp, *args, **kwargs)
+
+    pdfplumber.open = cached_open
+    pdfplumber._jlg_pdf_cache = True
 
 
 def tidy_mls_text(v):
