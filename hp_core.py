@@ -37,11 +37,12 @@ Normalized dict (keys always present, "" / [] when the sheet has no data):
 from __future__ import annotations
 
 import io
+import os
 import re
 
 import pdfplumber
 
-HP_CORE_VERSION = "1.1.0"
+HP_CORE_VERSION = "1.1.1"
 
 # ---------------------------------------------------------------------------
 # Low-level reading
@@ -186,7 +187,7 @@ def install_pdf_cache():
     """Speed-up for the web apps: several parsers (sniffing, the classic
     parser, enrichment, this module) each open the SAME uploaded bytes with
     pdfplumber, and pdfminer's layout pass is the slowest step by far. This
-    swaps pdfplumber.open for a wrapper that, for io.BytesIO / bytes input,
+    swaps pdfplumber.open for a wrapper that, for file paths, io.BytesIO or bytes input,
     keeps the most recently parsed PDF and hands it back to later callers
     (their `with` blocks no longer close it). One entry only, so memory
     stays flat. Safe to call more than once."""
@@ -214,6 +215,12 @@ def install_pdf_cache():
             pass
 
     def cached_open(fp, *args, **kwargs):
+        if not args and not kwargs and isinstance(fp, (str, os.PathLike)):
+            try:  # a file path: read it once and treat it like uploaded bytes
+                with open(fp, "rb") as fh:
+                    fp = fh.read()
+            except OSError:
+                return orig_open(fp)
         if not args and not kwargs and isinstance(fp, (bytes, io.BytesIO)):
             data = fp if isinstance(fp, bytes) else fp.getvalue()
             key = hashlib.md5(data).hexdigest()
@@ -230,8 +237,26 @@ def install_pdf_cache():
             return _Shared(state["pdf"])
         return orig_open(fp, *args, **kwargs)
 
+    def clear():
+        old = state["pdf"]
+        state["pdf"], state["key"] = None, None
+        if old is not None:
+            try:
+                old.close()
+            except Exception:
+                pass
+
     pdfplumber.open = cached_open
     pdfplumber._jlg_pdf_cache = True
+    pdfplumber._jlg_pdf_cache_clear = clear
+
+
+def clear_pdf_cache():
+    """Drop the cached PDF (call when a request is done to free memory)."""
+    import pdfplumber
+    fn = getattr(pdfplumber, "_jlg_pdf_cache_clear", None)
+    if fn:
+        fn()
 
 
 def tidy_mls_text(v):
