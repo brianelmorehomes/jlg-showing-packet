@@ -103,3 +103,12 @@ redeploys on every push to `main`. The parsing logic lives in `parser.py`,
 the flyer layout in `templates/flyer.html`, the cover page layout in
 `templates/cover.html`, and the packet-building/geocoding/map logic in
 `packet.py`.
+
+## One flyer layout for every MLS source
+
+MRED, MichRIC and Home Platform sheets all render through the card-style flyer
+(`templates/flyer_hp.html`). `hp_adapter.py` converts MichRIC and MRED listings
+into the same record hp_core produces for Home Platform sheets;
+`mls_router._parse_uncached` calls `attach_hp()`. If the adapter fails, the
+legacy `flyer.html` is the fallback. `hp_adapter.py` and `parser_michric.py` are
+copies of the ones in jlg-listing-flyer (which has the tests); keep them in sync.

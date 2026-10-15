@@ -50,7 +50,8 @@ body { margin:0; font-family:'Work Sans',sans-serif; color:var(--ink); font-size
 .hero { display:flex; gap:18px; margin-bottom:11px; }
 .photo { position:relative; flex:0 0 3.6in; height:2.35in; background-size:cover; background-position:center; border-radius:4px; background-color:var(--slate); }
 .chip { position:absolute; left:10px; top:10px; background:var(--blue); color:#fff; font-weight:700; font-size:7.4pt; letter-spacing:.09em; text-transform:uppercase; padding:4px 10px; border-radius:2px; }
-.chip.oh { top:auto; bottom:10px; background:var(--ruge); letter-spacing:.04em; text-transform:none; }
+.chip.wf { top:auto; bottom:10px; background:#1f6f8b; letter-spacing:.09em; }
+.chip.oh { top:auto; bottom:10px; left:auto; right:10px; background:var(--ruge); letter-spacing:.04em; text-transform:none; }
 .hinfo { flex:1; display:block; padding-top:.12in; }
 .addr { font-family:'Playfair Display',serif; font-size:21pt; font-weight:700; color:var(--blue); line-height:1.12; }
 .city { font-size:9.4pt; margin-top:3px; }
@@ -150,6 +151,7 @@ body { margin:0; font-family:'Work Sans',sans-serif; color:var(--ink); font-size
 <div class="hero">
   <div class="photo"{% if photo_path %} style="background-image:url('file://{{ photo_path }}');"{% endif %}>
     {% if status_label %}<span class="chip">{{ status_label }}</span>{% endif %}
+    {% if waterfront %}<span class="chip wf">Waterfront</span>{% endif %}
     {% if l.open_house %}<span class="chip oh">Open house &middot; {{ l.open_house }}</span>{% endif %}
   </div>
   <div class="hinfo">

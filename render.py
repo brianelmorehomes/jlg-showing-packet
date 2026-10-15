@@ -725,6 +725,30 @@ def hp_flyer_context(listing, density="", fill_page1=False):
     f = hp.get("facts") or {}
     condo = bool(hp.get("is_condo"))
 
+    # Waterfront matters most for Michigan buyers: lift the waterfront facts
+    # (waterfront yes/no, body of water, frontage) out of the page-2 Water
+    # card into the top of the page-1 Location card, flag it on the photo, and
+    # keep the descriptive features in the Water card.
+    waterfront = False
+    wb = B.get("water")
+    if wb:
+        wrows = dict(wb["rows"])
+        waterfront = str(wrows.get("Waterfront", "")).strip().lower() == "yes" or str(f.get("waterfront", "")).strip().lower() == "yes"
+        bow, fr = wrows.get("Body of water", ""), wrows.get("Frontage", "")
+        parts = [p for p in (bow, f"{fr} frontage" if fr else "") if p]
+        if waterfront:
+            lifted = [("Waterfront", " \u00b7 ".join(["Yes"] + parts))]
+        elif bow:
+            lifted = [("Body of water", bow)]
+        else:
+            lifted = []
+        if lifted:
+            loc = B.get("location") or {"key": "location", "title": "Location", "icon": "pin", "agent_only": False, "rows": []}
+            B["location"] = dict(loc, rows=lifted + [r for r in loc["rows"] if r[0] not in ("Waterfront", "Body of water")])
+            B["water"] = dict(wb, rows=[r for r in wb["rows"] if r[0] not in ("Waterfront", "Body of water", "Frontage")])
+            if not B["water"]["rows"]:
+                B.pop("water")
+
     def row(bucket, label):
         for lbl, val in (B.get(bucket) or {}).get("rows", []):
             if lbl == label:
@@ -755,6 +779,8 @@ def hp_flyer_context(listing, density="", fill_page1=False):
     style = (hp.get("architectural_style") or "").strip()
     if style:
         meta = f"{meta} · {style}" if meta else style
+    if waterfront:
+        meta = f"{meta} · Waterfront" if meta else "Waterfront"
 
     # Sale history: client-facing flyer shows real listing/sale milestones only.
     hist, seen = [], set()
@@ -832,7 +858,7 @@ def hp_flyer_context(listing, density="", fill_page1=False):
     else:
         p1_cols = None
         p2_cols = split_cols(order)
-    return dict(B=B, hp=hp_view, p1_cols=p1_cols, p2_cols=p2_cols, facts=facts, price_sub=price_sub, meta_line=meta, history=hist,
+    return dict(B=B, waterfront=waterfront, hp=hp_view, p1_cols=p1_cols, p2_cols=p2_cols, facts=facts, price_sub=price_sub, meta_line=meta, history=hist,
                 rooms_by_level=rooms_by_level, remarks_class=remarks_class)
 
 

@@ -362,6 +362,15 @@ class Listing:
 
     source_filename: str = ""
 
+    # Structured label -> value pairs a source parser had in hand before it
+    # flattened them into the blob fields above (e.g. MichRIC's "Roofing",
+    # "Fencing", "Flooring"). hp_adapter.py uses these so the card flyer can
+    # fill the same rows Home Platform sheets do. Optional: empty is fine.
+    extras: dict = field(default_factory=dict)
+    # Set by hp_adapter.attach_hp(): the normalized record the card flyer
+    # (templates/flyer_hp.html) renders. None -> legacy flyer fallback.
+    hp: dict = None
+
     @property
     def is_rental(self):
         """MRED's "Residential Rental" property type (also seen as just
@@ -1207,6 +1216,19 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         listing.exterior_features = (
             f"{listing.exterior_features}; Other Structures: {other_structures}" if listing.exterior_features else f"Other Structures: {other_structures}"
         )
+
+    # Structured copies for the card flyer (hp_adapter.py): fields the grid
+    # carries under their own labels that never had a Listing field.
+    for _key, _col, _label in (
+        ("exterior_material", feat_col1, "Exterior"), ("electricity", feat_col1, "Electricity"),
+        ("foundation", feat_col2, "Foundation"), ("driveway", feat_col2, "Driveway"),
+        ("sewer", feat_col3, "Sewer"), ("water", feat_col3, "Water"),
+        ("general_info", feat_col3, "General Info"), ("sale_terms", feat_col3, "Sale Terms"),
+        ("management", feat_col3, "Management"),
+    ):
+        _v = _grab_feat(_col, _label)
+        if _v and not _is_nullish(_v):
+            listing.extras[_key] = _v
 
     # Equipment (extras included in the sale, e.g. "Intercom, Ceiling Fan")
     # and Additional Rooms fold into Interior the same way. "No additional

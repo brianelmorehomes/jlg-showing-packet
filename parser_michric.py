@@ -477,11 +477,11 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         header_col1 = re.sub(r"\s*\n\s*", " ", _column_text(words, 0, 364, style_top - 1, directions_top - 1))
         header_col3 = re.sub(r"\s*\n\s*", " ", _column_text(words, 468, page_width, style_top - 1, directions_top - 1))
 
-        style = _grab(header_col1, "Architectural Style", ["Stories:", "\n"])
+        style = _grab(header_col1, "Architectural Style", ["Stories:", "Total Rooms", "Total Fin", "SqFt Above", "\n"])
         if style and not _is_nullish(style):
             listing.architectural_style = style
 
-        bow = _grab(header_col3, "Body of Water", ["Statewide Lakes", "\n"])
+        bow = _grab(header_col3, "Body of Water", ["Statewide Lakes", "Terms Available", "Accessibility Features", "Sale Terms", "\n"])
         if bow and not _is_nullish(bow):
             listing.body_of_water = bow
 
@@ -573,11 +573,11 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         listing.high_school = m.group(1).strip()
 
     if not (listing.elementary or listing.junior_high or listing.high_school):
-        m = re.search(r"School District:\s*([A-Za-z .]+?)(?:\n|Legal:|Special Assmt|Homestead|$)", tax_legal)
+        m = re.search(r"School District:\s*([A-Za-z .'\-]+?)(?:\n|Legal:|Special Assmt|Homestead|$)", tax_legal)
         if m:
             listing.school_district = m.group(1).strip()
 
-    m = re.search(r"Special Assmt/Type:\s*([^\n]*?)(?:\s*High School:|\s*Homestead|\n|$)", tax_legal)
+    m = re.search(r"Special Assmt/Type:\s*([^\n]*?)(?:\s*High School:|\s*Homestead|\s*Owner Name:|\n|$)", tax_legal)
     if m and not _is_nullish(m.group(1)):
         listing.special_assessments = m.group(1).strip()
 
@@ -652,10 +652,13 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         # page-2 "Parking & Garage" group already expects to combine the
         # two (short type + spaces + full detail string).
         raw_parking = _grab_feat(ext_flat, "Parking Features", FEAT_STOPS)
+        _no_garage = bool(re.search(r"Garage Y/N:\s*No", text)) and not re.search(r"Garage Spaces:\s*[1-9]", ext_flat)
         if raw_parking:
             listing.garage_details = raw_parking
             low = raw_parking.lower()
-            if "attached" in low and "detached" not in low:
+            if _no_garage and "garage" not in low:
+                listing.parking_type = "Parking"
+            elif "attached" in low and "detached" not in low:
                 listing.parking_type = "Attached Garage"
             elif "detached" in low:
                 listing.parking_type = "Detached Garage"
@@ -667,6 +670,26 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
         m = re.search(r"Garage Spaces:\s*(\d+)", ext_flat)
         if m:
             listing.parking_spaces = m.group(1)
+
+        # Structured copies for the card flyer (hp_adapter.py). Same values the
+        # blob fields above were built from, kept under their own labels.
+        def _ex(key, val):
+            if val and not _is_nullish(val):
+                listing.extras[key] = val.strip()
+        _ex("exterior_material", ext_material)
+        _ex("roofing", roofing)
+        _ex("windows", windows)
+        _ex("fencing", fencing)
+        _ex("landscape", landscape)
+        _ex("exterior_note", ext_note)
+        _ex("patio_porch", patio_porch)
+        _ex("flooring", _grab_feat(int_flat, "Flooring", FEAT_STOPS))
+        _ex("fireplaces", _grab_feat(int_flat, "Total Fireplaces", FEAT_STOPS))
+        _ex("main_level_primary", _grab_feat(int_flat, "Main Level Primary", FEAT_STOPS))
+        _ex("water_heater", _grab_feat(con_flat, "Water Heater", FEAT_STOPS))
+        _ex("utilities", _grab_feat(con_flat, "Utilities Attached", FEAT_STOPS))
+        _ex("util_street", _grab_feat(con_flat, "Util Avail at Street", FEAT_STOPS))
+        listing.extras["structured"] = True
 
         listing.laundry = _grab_feat(int_flat, "Laundry Features", FEAT_STOPS)
         listing.appliances = _grab_feat(int_flat, "Appliances", FEAT_STOPS)
@@ -739,6 +762,17 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
 
             other_top = _real_other_top() or _find_word_top(words, "Brian", after_top=ad_top)
             ad_bottom = other_top or page_height
+            # "Listing and Selling Information" (showing instructions, listing
+            # agreement, seller type) is its own section below this grid; keep
+            # it out of the interior/assessment fields (it is agent-side info).
+            _sell_top = next(
+                (w["top"] for w in sorted(words, key=lambda w: (w["top"], w["x0"]))
+                 if w["text"] == "Listing" and w["top"] > ad_top
+                 and any(w2["text"] == "Selling" and abs(w2["top"] - w["top"]) < 3 for w2 in words)),
+                None,
+            )
+            if _sell_top:
+                ad_bottom = min(ad_bottom, _sell_top)
             add1, add2, add3 = _three_cols(words, left_margin, ad_top - 1, ad_bottom - 2, page_width)
             add1_flat = re.sub(r"\s*\n\s*", " ", add1)
             add2_flat = re.sub(r"\s*\n\s*", " ", add2)
@@ -772,9 +806,36 @@ def parse_listing_pdf(file_bytes: bytes, source_filename: str = "") -> Listing:
             # add2_flat entirely on sheets that have it. Reuses the
             # existing assessment_includes field MRED already populates,
             # so no template changes are needed to display it.
+            if lot_desc and not _is_nullish(lot_desc):
+                listing.extras["lot_description"] = lot_desc
+            if security and not _is_nullish(security):
+                listing.extras["security"] = security
+            _st = _grab(add3_flat, "Street Type", ["Driveway:", "Zoning:", "Mineral Rights:", "$"])
+            if _st and not _is_nullish(_st):
+                listing.extras["street_type"] = _st
+            _dw = _grab(add3_flat, "Driveway", ["Street Type:", "Zoning:", "$"])
+            if _dw and not _is_nullish(_dw):
+                listing.extras["driveway"] = _dw
+            _zn = _grab(add2_flat, "Zoning", ["Mineral Rights:", "Assoc. Amenities:", "Assoc. Fee Incl.:", "$"]) or _grab(add3_flat, "Zoning", ["Driveway:", "Street Type:", "$"])
+            if _zn and not _is_nullish(_zn):
+                listing.extras["zoning"] = _zn
             fee_incl = _grab(add2_flat, "Assoc. Fee Incl.", ["Assoc. Amenities:", "$"])
             if fee_incl and not _is_nullish(fee_incl):
                 listing.assessment_includes = fee_incl
+
+    # --- Header-level extras for the card flyer ---------------------------------
+    for key, pat in (
+        ("municipality", r"Municipality:\s*([A-Za-z .'-]+?)(?=\s+Days on Market|\s+Sale Conditions|\n|$)"),
+        ("tax_id", r"Tax ID #:\s*([\w-]+)"),
+        ("cross_streets", r"Cross Streets:\s*([^\n]+)"),
+        ("lot_acres", r"Lot Acres:\s*([\d.]+)"),
+        ("legal", r"Legal:\s*([^\n]+)"),
+        ("fireplace_yn", r"\bFireplace:\s*(Yes|No)\b"),
+        ("other_structures", r"Other Structures\s*\n([^\n]+)"),
+    ):
+        mm = re.search(pat, text)
+        if mm and not _is_nullish(mm.group(1)):
+            listing.extras[key] = mm.group(1).strip()
 
     # --- Room dimensions (same fixed 3-up grid) ------------------------------
     dim_top = _find_word_top(words, "Dimensions")

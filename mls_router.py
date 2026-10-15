@@ -38,6 +38,7 @@ except Exception:  # pragma: no cover - optimization only
 from parser import parse_listing_pdf as _parse_mred
 from parser_michric import parse_listing_pdf as _parse_michric, is_michric
 from parser_platform import parse_listing_pdf as _parse_platform, is_new_platform
+from hp_adapter import attach_hp
 
 
 def _sniff_text(file_bytes: bytes) -> str:
@@ -133,9 +134,14 @@ def _parse_uncached(file_bytes: bytes, source_filename: str = ""):
     text = _sniff_text(file_bytes)
     if is_new_platform(text):
         return _parse_platform(file_bytes, source_filename)
+    # MichRIC and MRED sheets are converted to the same record Home Platform
+    # sheets produce (hp_adapter), so every source renders through the one
+    # card-style flyer.
     if is_michric(text):
-        return _parse_michric(file_bytes, source_filename)
-    return _parse_mred(file_bytes, source_filename)
+        listing = _parse_michric(file_bytes, source_filename)
+    else:
+        listing = _parse_mred(file_bytes, source_filename)
+    return attach_hp(listing)
 
 
 def parse_listing_pdf(file_bytes: bytes, source_filename: str = ""):

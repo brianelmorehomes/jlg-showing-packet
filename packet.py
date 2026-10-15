@@ -120,7 +120,7 @@ def split_into_listing_pdfs(file_bytes):
         fdoc = fitz.open(stream=file_bytes, filetype="pdf")
         try:
             for fpage in fdoc:
-                m = re.search(r"MLS #:\s*(\d+)", fpage.get_text("text") or "")
+                m = re.search(r"MLS\s#:\s*(\d+)", fpage.get_text("text") or "")
                 page_mls.append(m.group(1) if m else None)
                 top = fpage.get_text(
                     "text", clip=fitz.Rect(0, 0, fpage.rect.width, fpage.rect.height * 0.12)) or ""
@@ -134,7 +134,7 @@ def split_into_listing_pdfs(file_bytes):
             with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
                 for page in pdf.pages:
                     text = page.extract_text() or ""
-                    m = re.search(r"MLS #:\s*(\d+)", text)
+                    m = re.search(r"MLS\s#:\s*(\d+)", text)
                     page_mls.append(m.group(1) if m else None)
                     hp = re.search(r"\bPage\s+(\d+)\s*/\s*(\d+)\b", text[:600])
                     page_starts.append(bool(hp and int(hp.group(1)) == 1))
