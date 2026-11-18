@@ -795,7 +795,7 @@ def hp_flyer_context(listing, density="", fill_page1=False):
         seen.add(key)
         hist.append({"date": h.get("date", ""), "price": h.get("price", ""),
                      "event": ev.replace(" (Active)", "").replace(" (Public Record)", " (public record)")})
-    cap = {"": 6, "dense": 5, "very-dense": 4}.get(density, 6)
+    cap = {"": 6, "dense": 5, "very-dense": 4, "ultra": 3}.get(density, 6)
     hist = hist[:cap]
 
     levels = {}
@@ -804,12 +804,12 @@ def hp_flyer_context(listing, density="", fill_page1=False):
     rooms_by_level = sorted(levels.items(), key=lambda kv: _LEVEL_ORDER.index(kv[0]) if kv[0] in _LEVEL_ORDER else 9)
 
     n = len(hp.get("description") or "")
-    remarks_class = "very-tight" if n > 2000 else ("tight" if n > 1400 else "")
+    remarks_class = "ultra-tight" if density == "ultra" else ("very-tight" if n > 2000 else ("tight" if n > 1400 else ""))
     hp_view = dict(hp)
     if density:
         # Tighter tiers also trim the longest low-value lists.
-        sc = {"dense": 5, "very-dense": 4}[density]
-        tr = {"dense": 4, "very-dense": 3}[density]
+        sc = {"dense": 5, "very-dense": 4, "ultra": 3}[density]
+        tr = {"dense": 4, "very-dense": 3, "ultra": 2}[density]
         serves = [s for s in hp.get("schools", []) if s.get("serves")]
         rest = [s for s in hp.get("schools", []) if not s.get("serves")]
         hp_view["schools"] = (serves + rest)[:sc]
@@ -996,14 +996,14 @@ def render_flyer(
         # Home Platform listing parsed by the shared hp_core: card-style flyer.
         hp_tmpl = env.get_template("flyer_hp.html")
         status = "Private Listing" if is_private_listing(listing) else (listing.hp.get("status") or status_label_for(listing))
-        attempts = [("", False), ("dense", False), ("very-dense", False)]
+        attempts = [("", False), ("dense", False), ("very-dense", False), ("ultra", False)]
         # Long remarks essentially never fit page 2 at the roomy tier (every
         # sample 1,400+ characters overflowed it), and each wasted attempt is
         # a full WeasyPrint layout -- slow on Render's free tier. Start at the
         # tier that is likely to fit; the loop still verifies the page count
         # and only ever moves to a tighter tier.
         _desc_len = len((listing.hp or {}).get("description") or "")
-        attempts = attempts[2 if _desc_len >= 1800 else 1 if _desc_len >= 1400 else 0:]
+        attempts = attempts[3 if _desc_len >= 2600 else 2 if _desc_len >= 1800 else 1 if _desc_len >= 1400 else 0:]
         for attempt_no, (density, fill) in enumerate(attempts):
             ctx = hp_flyer_context(listing, density, fill)
             html_str = hp_tmpl.render(
