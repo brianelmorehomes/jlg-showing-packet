@@ -900,6 +900,7 @@ def build_packet(
     geocode_user_agent="jlg-showing-packet-app",
     prepared_date="",
     extra_docs=None,
+    include_notes=True,
 ):
     """ordered_items: list of {"listing": Listing, "time": str} in showing
     order. Builds the full packet PDF at output_path.
@@ -931,7 +932,7 @@ def build_packet(
         # Stable sort keeps the user's relative order for docs in the same slot.
         extra_docs.sort(key=lambda d: d["after"])
         extra_pages = sum(d["pages"] for d in extra_docs)
-        total_pages = 3 + 2 * n_stops + extra_pages
+        total_pages = 2 + 2 * n_stops + extra_pages + (1 if include_notes else 0)
 
         def _pages_before_listing(i):
             return sum(d["pages"] for d in extra_docs if d["after"] <= i)
@@ -1062,20 +1063,23 @@ def build_packet(
         _blank_page_pdf(blank_path)
 
         # 5. Notes page at the very end -- one small section per stop.
-        fd, notes_path = tempfile.mkstemp(suffix=".pdf")
-        os.close(fd)
-        tmp_paths.append(notes_path)
-        render_notes(
-            rows,
-            notes_path,
-            showing_date=showing_date,
-            client_name=client_name,
-            agent_name=agent_name,
-            print_safe_logo=print_safe_logo,
-            prepared_date=prepared_date,
-            page_offset=total_pages,
-            total_pages=total_pages,
-        )
+        # Optional (include_notes): skipped entirely for clients who don't use it.
+        notes_path = None
+        if include_notes:
+            fd, notes_path = tempfile.mkstemp(suffix=".pdf")
+            os.close(fd)
+            tmp_paths.append(notes_path)
+            render_notes(
+                rows,
+                notes_path,
+                showing_date=showing_date,
+                client_name=client_name,
+                agent_name=agent_name,
+                print_safe_logo=print_safe_logo,
+                prepared_date=prepared_date,
+                page_offset=total_pages,
+                total_pages=total_pages,
+            )
 
         # 5b. Extra documents, stamped with the packet footer.
         doc_paths = []  # (after, path)
@@ -1097,7 +1101,7 @@ def build_packet(
             body += [dp for after, dp in doc_paths if after == k]
             if k < n_stops:
                 body.append(flyer_paths[k])
-        merge_pdfs([cover_path, blank_path] + body + [notes_path], output_path)
+        merge_pdfs([cover_path, blank_path] + body + ([notes_path] if notes_path else []), output_path)
         return output_path
     finally:
         for p in tmp_paths:

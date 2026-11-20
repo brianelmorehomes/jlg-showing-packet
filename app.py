@@ -242,6 +242,11 @@ PAGE = """
       Include route map on cover page (adds a few seconds)
     </label>
 
+    <label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:.82rem;color:var(--text);cursor:pointer;">
+      <input type="checkbox" id="includeNotes" checked style="margin:0;">
+      Include showing notes page (turn off for clients who don't use it &mdash; saves a sheet)
+    </label>
+
     <button class="primary" id="generateBtn" type="button">Generate Showing Packet</button>
     <div id="genStatus" style="font-size:.85rem;color:var(--muted);margin-top:10px;"></div>
   </div>
@@ -272,6 +277,9 @@ printSafeLogoEl.checked = localStorage.getItem('jlg_print_safe_logo') === '1';
 nameEl.addEventListener('change', () => localStorage.setItem('jlg_agent_name', nameEl.value));
 phoneEl.addEventListener('change', () => localStorage.setItem('jlg_agent_phone', phoneEl.value));
 emailEl.addEventListener('change', () => localStorage.setItem('jlg_agent_email', emailEl.value));
+const includeNotesEl = document.getElementById('includeNotes');
+includeNotesEl.checked = localStorage.getItem('jlg_include_notes') !== '0';
+includeNotesEl.addEventListener('change', () => localStorage.setItem('jlg_include_notes', includeNotesEl.checked ? '1' : '0'));
 printSafeLogoEl.addEventListener('change', () => localStorage.setItem('jlg_print_safe_logo', printSafeLogoEl.checked ? '1' : '0'));
 
 // `uploadedFiles` holds every unique File the user has dropped in, in
@@ -475,6 +483,7 @@ generateBtn.addEventListener('click', () => {
   form.append('agent_phone', phoneEl.value);
   form.append('agent_email', emailEl.value);
   form.append('print_safe_logo', printSafeLogoEl.checked ? '1' : '');
+  form.append('include_notes', includeNotesEl.checked ? '1' : '0');
   form.append('include_map', document.getElementById('includeMap').checked ? '1' : '');
 
   fetch('/generate', { method: 'POST', body: form })
@@ -594,6 +603,7 @@ def generate():
     agent_email = request.form.get("agent_email", "").strip() or DEFAULT_AGENT_EMAIL
     print_safe_logo = bool(request.form.get("print_safe_logo", "").strip())
     include_map = request.form.get("include_map", "").strip() == "1"
+    include_notes = request.form.get("include_notes", "1").strip() != "0"
     showing_date = request.form.get("showing_date", "").strip()
     client_name = request.form.get("client_name", "").strip()
 
@@ -674,6 +684,7 @@ def generate():
             agent_email=agent_email,
             print_safe_logo=print_safe_logo,
             include_map=include_map,
+            include_notes=include_notes,
             geocode_user_agent=f"jlg-showing-packet-app ({agent_email})",
             prepared_date=datetime.now().strftime("%B %-d, %Y"),
             extra_docs=extra_docs,
