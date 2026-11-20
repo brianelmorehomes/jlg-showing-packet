@@ -793,6 +793,97 @@ def merge_pdfs(pdf_paths, output_path):
 
 
 # ---------------------------------------------------------------------------
+# Extra in-line documents (property details, disclosures, etc.)
+# ---------------------------------------------------------------------------
+
+_FOOTER_HAIRLINE_FROM_BOTTOM = 43.2   # matches the flyer/cover/notes @page bottom margin (.6in)
+_FOOTER_TEXT_FROM_BOTTOM = 17.5
+_FOOTER_SIDE_MARGIN = 36              # .5in, same as the flyer
+_FOOTER_BAND = 30                     # extra strip added when a page's own content reaches the footer zone
+
+
+def inspect_extra_pdf(pdf_bytes):
+    """Validate an uploaded extra document. Returns its page count; raises
+    ValueError for anything unreadable, empty, or password-protected."""
+    import fitz
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as e:
+        raise ValueError("not a readable PDF") from e
+    try:
+        if doc.needs_pass:
+            raise ValueError("password-protected PDFs can't be included")
+        if doc.page_count < 1:
+            raise ValueError("the PDF has no pages")
+        return doc.page_count
+    finally:
+        doc.close()
+
+
+def _page_content_reaches_footer(page, zone_top):
+    """True if text, an image, or a meaningful vector shape sits in the zone
+    where the packet footer gets stamped."""
+    try:
+        for w in page.get_text("words"):
+            if w[3] > zone_top:
+                return True
+        for im in page.get_image_info():
+            if im.get("bbox") and im["bbox"][3] > zone_top:
+                return True
+        page_area = max(1.0, page.rect.width * page.rect.height)
+        for d in page.get_drawings():
+            r = d.get("rect")
+            # Ignore full-page backgrounds; they would always "collide".
+            if r and r.width * r.height < 0.85 * page_area and r.y1 > zone_top:
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def stamp_extra_pdf(pdf_bytes, label, first_page_num, total_pages, output_path):
+    """Write a copy of an extra document with the packet's "label - Page X of
+    N" footer stamped on every page, so pagination runs continuously through
+    the whole packet. The document's own content is left untouched; if a page
+    already has content in the footer zone, that page is placed on a slightly
+    taller sheet so the footer sits in added white space instead of on top of
+    anything. Returns the page count."""
+    import fitz
+    src = fitz.open(stream=pdf_bytes, filetype="pdf")
+    out = fitz.open()
+    font_path = os.path.join(FONT_DIR, "WorkSans-Reg-Final.ttf")
+    font = fitz.Font(fontfile=font_path)
+    size = 6.6
+    gray = (0.42, 0.42, 0.43)
+    hair = (0.847, 0.863, 0.871)
+    n = src.page_count
+    for i in range(n):
+        spage = src[i]
+        w, h = spage.rect.width, spage.rect.height
+        collide = (spage.rotation == 0) and _page_content_reaches_footer(spage, h - _FOOTER_HAIRLINE_FROM_BOTTOM - 4)
+        if collide:
+            page = out.new_page(width=w, height=h + _FOOTER_BAND)
+            page.show_pdf_page(fitz.Rect(0, 0, w, h), src, i)
+            ph = h + _FOOTER_BAND
+        else:
+            out.insert_pdf(src, from_page=i, to_page=i)
+            page = out[-1]
+            ph = h
+        if page.rotation != 0:
+            continue  # footer coordinates would land on the wrong edge; leave the page as-is
+        text = f"{label}  \u2022  Page {first_page_num + i} of {total_pages}"
+        tw = font.text_length(text, fontsize=size)
+        y_line = ph - _FOOTER_HAIRLINE_FROM_BOTTOM
+        page.draw_line((_FOOTER_SIDE_MARGIN, y_line), (w - _FOOTER_SIDE_MARGIN, y_line), color=hair, width=0.75)
+        page.insert_text((max(_FOOTER_SIDE_MARGIN, (w - tw) / 2), ph - _FOOTER_TEXT_FROM_BOTTOM), text,
+                         fontname="WorkSansPkt", fontfile=font_path, fontsize=size, color=gray)
+    out.save(output_path, garbage=3, deflate=True)
+    out.close()
+    src.close()
+    return n
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
@@ -808,9 +899,15 @@ def build_packet(
     include_map=True,
     geocode_user_agent="jlg-showing-packet-app",
     prepared_date="",
+    extra_docs=None,
 ):
     """ordered_items: list of {"listing": Listing, "time": str} in showing
-    order. Builds the full packet PDF at output_path."""
+    order. Builds the full packet PDF at output_path.
+
+    extra_docs: optional list of {"pdf": bytes, "label": str, "after": int, "pages": int}
+    -- documents included as-is (no parsing), placed after `after` listings
+    (0 = before the first flyer). They are merged in-line between the flyers,
+    stamped with the packet footer, and counted in every page number/total."""
     tmp_paths = []
     try:
         # Page layout of the merged packet is fixed and known up front:
@@ -827,7 +924,17 @@ def build_packet(
         # footer-only discrepancy, not a build failure, and not worth a
         # second full render pass to eliminate for how rarely it happens.
         n_stops = len(ordered_items)
-        total_pages = 3 + 2 * n_stops
+        extra_docs = [dict(d) for d in (extra_docs or [])]
+        for d in extra_docs:
+            d["after"] = max(0, min(int(d.get("after", n_stops)), n_stops))
+            d["pages"] = int(d.get("pages") or inspect_extra_pdf(d["pdf"]))
+        # Stable sort keeps the user's relative order for docs in the same slot.
+        extra_docs.sort(key=lambda d: d["after"])
+        extra_pages = sum(d["pages"] for d in extra_docs)
+        total_pages = 3 + 2 * n_stops + extra_pages
+
+        def _pages_before_listing(i):
+            return sum(d["pages"] for d in extra_docs if d["after"] <= i)
 
         # 1. Per-listing flyer PDFs, in showing order.
         flyer_paths = []
@@ -842,7 +949,7 @@ def build_packet(
                 agent_email=agent_email,
                 agent_name=agent_name,
                 print_safe_logo=print_safe_logo,
-                page_offset=3 + 2 * i,
+                page_offset=3 + 2 * i + _pages_before_listing(i),
                 total_pages=total_pages,
             )
             flyer_paths.append(fp)
@@ -970,8 +1077,27 @@ def build_packet(
             total_pages=total_pages,
         )
 
-        # 6. Merge cover + blank + flyers + notes, in order.
-        merge_pdfs([cover_path, blank_path] + flyer_paths + [notes_path], output_path)
+        # 5b. Extra documents, stamped with the packet footer.
+        doc_paths = []  # (after, path)
+        pages_so_far = {}
+        running = 0
+        for d in extra_docs:
+            fd, dp = tempfile.mkstemp(suffix=".pdf")
+            os.close(fd)
+            tmp_paths.append(dp)
+            # Page number = 3 (cover, blank, +1) offset + flyers before it + docs before it.
+            first_num = 3 + 2 * d["after"] + running
+            stamp_extra_pdf(d["pdf"], d.get("label") or "Document", first_num, total_pages, dp)
+            running += d["pages"]
+            doc_paths.append((d["after"], dp))
+
+        # 6. Merge cover + blank + (docs/flyers in sequence) + notes, in order.
+        body = []
+        for k in range(n_stops + 1):
+            body += [dp for after, dp in doc_paths if after == k]
+            if k < n_stops:
+                body.append(flyer_paths[k])
+        merge_pdfs([cover_path, blank_path] + body + [notes_path], output_path)
         return output_path
     finally:
         for p in tmp_paths:

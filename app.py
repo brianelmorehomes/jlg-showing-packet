@@ -23,7 +23,7 @@ from datetime import datetime
 from flask import Flask, request, jsonify, send_file, render_template_string, after_this_request
 
 from mls_router import parse_listing_pdf
-from packet import build_packet, split_into_listing_pdfs
+from packet import build_packet, split_into_listing_pdfs, inspect_extra_pdf
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 300 * 1024 * 1024  # 300MB total upload cap
@@ -141,6 +141,9 @@ PAGE = """
   .seq-row input[type=text].time-input {
     width: 110px; padding:7px 9px; border:1.5px solid var(--border-b); border-radius: var(--r); font-size:.85rem; font-family: inherit;
   }
+  .seq-row.doc { background:#f4f7f9; border-style:dashed; }
+  .seq-row .badge.doc { background:#6b6b6b; border-radius:5px; font-size:11px; }
+  .seq-row input[type=text].doc-label { width:100%; max-width:320px; padding:6px 9px; border:1.5px solid var(--border-b); border-radius: var(--r); font-size:.85rem; font-family: inherit; margin-top:4px; }
   .seq-row .remove { color:#9a9a9c; cursor:pointer; font-size:12px; padding:0 4px; }
   .seq-row .remove:hover { color: var(--red); }
 
@@ -190,9 +193,14 @@ PAGE = """
 
   <div class="card" id="stepSequence">
     <h2><span class="step-num">2</span>Drag into showing order &amp; enter a time for each stop</h2>
-    <div style="font-size:.78rem;color:var(--muted);margin:-6px 0 14px;">Drag the &#9776; handle to reorder. Times are optional &mdash; leave any stop blank and it'll show as "Time TBD" on the packet.</div>
+    <div style="font-size:.78rem;color:var(--muted);margin:-6px 0 14px;">Drag the &#9776; handle to reorder listings and documents. Times are optional &mdash; leave any stop blank and it'll show as "Time TBD" on the packet.</div>
     <div id="seqList"></div>
     <button class="secondary" id="addMoreBtn" type="button">+ Add more listings</button>
+    <button class="secondary" id="addDocBtn" type="button" style="margin-left:8px;">+ Add a document</button>
+    <input type="file" id="docInput" accept="application/pdf" multiple style="display:none">
+    <div style="font-size:.76rem;color:var(--muted);margin-top:10px;">
+      <strong>Documents</strong> (property details, disclosures, floor plans, etc.) are included exactly as-is, in the position you drag them to, and get the packet's page-number footer. Only PDFs.
+    </div>
   </div>
 
   <div class="card" id="stepDetails" style="display:none;">
@@ -273,7 +281,46 @@ printSafeLogoEl.addEventListener('change', () => localStorage.setItem('jlg_print
 // holding its own File reference, since one uploaded file (a batch export)
 // can expand into several independently-orderable rows.
 let uploadedFiles = [];
-let items = []; // { id, fileIndex, subIndex, address_line1, city_state_zip, price, beds, baths, sqft, time }
+let items = []; // listing: { id, type:'listing', fileIndex, subIndex, address_line1, city_state_zip, price, beds, baths, sqft, time }
+                // document: { id, type:'doc', docIndex, name, pages, label }
+let docFiles = []; // extra documents, sent as-is with the packet request
+const docInput = document.getElementById('docInput');
+const addDocBtn = document.getElementById('addDocBtn');
+addDocBtn.addEventListener('click', () => docInput.click());
+docInput.addEventListener('change', () => { handleDocs(docInput.files); docInput.value = ''; });
+const hasListings = () => items.some(x => x.type === 'listing');
+
+function handleDocs(fileList) {
+  if (!fileList || !fileList.length) return;
+  const newDocs = Array.from(fileList);
+  const baseIndex = docFiles.length;
+  docFiles = docFiles.concat(newDocs);
+  const form = new FormData();
+  newDocs.forEach(f => form.append('docs', f));
+  errorsEl.innerHTML = '';
+  statusEl.textContent = 'Reading ' + newDocs.length + ' document(s)...';
+  fetch('/preview_docs', { method: 'POST', body: form })
+    .then(r => r.json())
+    .then(data => {
+      let added = 0;
+      data.results.forEach(r => {
+        if (r.ok) {
+          items.push({ id: 'd' + Math.random().toString(36).slice(2, 10), type: 'doc',
+                       docIndex: baseIndex + r.doc_index, name: r.name, pages: r.pages,
+                       label: r.name.replace(/\.pdf$/i, '') });
+          added++;
+        } else {
+          const row = document.createElement('div');
+          row.className = 'error-row';
+          row.textContent = r.name + ': could not be added (' + r.error + ')';
+          errorsEl.appendChild(row);
+        }
+      });
+      statusEl.textContent = added + ' document(s) added.';
+      renderSeqList();
+    })
+    .catch(err => { statusEl.textContent = 'Error: ' + err; });
+}
 let dragSrcId = null;
 
 dz.addEventListener('click', () => fileInput.click());
@@ -307,6 +354,7 @@ function handleFiles(fileList) {
         if (r.ok) {
           items.push({
             id: 'l' + Math.random().toString(36).slice(2, 10),
+            type: 'listing',
             fileIndex: baseIndex + r.file_index,
             subIndex: r.sub_index,
             address_line1: r.address_line1,
@@ -325,7 +373,7 @@ function handleFiles(fileList) {
       const total = data.results.length;
       statusEl.textContent = addedOk + ' listing(s) added' + (total !== addedOk ? ' (' + (total - addedOk) + ' could not be read — see below)' : '') + '.';
       renderSeqList();
-      if (items.length) {
+      if (hasListings()) {
         stepSequence.style.display = 'block';
         stepDetails.style.display = 'block';
       }
@@ -335,9 +383,10 @@ function handleFiles(fileList) {
 
 function renderSeqList() {
   seqList.innerHTML = '';
+  let stopNo = 0;
   items.forEach((item, idx) => {
     const row = document.createElement('div');
-    row.className = 'seq-row';
+    row.className = 'seq-row' + (item.type === 'doc' ? ' doc' : '');
     row.draggable = true;
     row.dataset.id = item.id;
 
@@ -354,11 +403,33 @@ function renderSeqList() {
       renderSeqList();
     });
 
+    if (item.type === 'doc') {
+      const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+      row.innerHTML = `
+        <span class="handle">☰</span>
+        <span class="badge doc" title="Document">DOC</span>
+        <div class="info">
+          <div class="addr">${esc(item.name)}</div>
+          <div class="facts">${item.pages} page${item.pages === 1 ? '' : 's'} · included as-is · footer label:</div>
+          <input type="text" class="doc-label" value="${esc(item.label)}" maxlength="80">
+        </div>
+        <span class="remove" title="Remove">✕</span>
+      `;
+      row.querySelector('.doc-label').addEventListener('input', e => { item.label = e.target.value; });
+      row.querySelector('.doc-label').addEventListener('mousedown', e => e.stopPropagation());
+      row.querySelector('.remove').addEventListener('click', () => {
+        items = items.filter(x => x.id !== item.id);
+        renderSeqList();
+      });
+      seqList.appendChild(row);
+      return;
+    }
+    stopNo++;
     const facts = [item.price, item.beds, item.baths, item.sqft].filter(Boolean).join(' · ');
 
     row.innerHTML = `
       <span class="handle">☰</span>
-      <span class="badge">${idx + 1}</span>
+      <span class="badge">${stopNo}</span>
       <div class="info">
         <div class="addr">${item.address_line1}</div>
         <div class="facts">${item.city_state_zip}${facts ? ' · ' + facts : ''}</div>
@@ -373,14 +444,14 @@ function renderSeqList() {
     row.querySelector('.remove').addEventListener('click', () => {
       items = items.filter(x => x.id !== item.id);
       renderSeqList();
-      if (!items.length) { stepSequence.style.display = 'none'; stepDetails.style.display = 'none'; }
+      if (!hasListings()) { stepSequence.style.display = 'none'; stepDetails.style.display = 'none'; }
     });
     seqList.appendChild(row);
   });
 }
 
 generateBtn.addEventListener('click', () => {
-  if (!items.length) return;
+  if (!hasListings()) return;
 
   // Times are optional -- a stop left blank just renders as "Time TBD"
   // on the cover page (see cover.html's .sched-time.tbd), so an ordered
@@ -393,7 +464,10 @@ generateBtn.addEventListener('click', () => {
 
   const form = new FormData();
   uploadedFiles.forEach(f => form.append('files', f));
-  const order = items.map(i => ({ file_index: i.fileIndex, sub_index: i.subIndex, time: i.time }));
+  docFiles.forEach(f => form.append('docs', f));
+  const order = items.map(i => i.type === 'doc'
+    ? { type: 'doc', doc_index: i.docIndex, label: i.label }
+    : { file_index: i.fileIndex, sub_index: i.subIndex, time: i.time });
   form.append('order', JSON.stringify(order));
   form.append('showing_date', document.getElementById('showingDate').value);
   form.append('client_name', document.getElementById('clientName').value);
@@ -498,6 +572,21 @@ def preview():
     return jsonify({"results": results})
 
 
+@app.route("/preview_docs", methods=["POST"])
+def preview_docs():
+    """Validate extra documents (property details, disclosures, etc.) that
+    will be included in the packet as-is. No parsing -- just confirms each is
+    a readable PDF and reports its page count so the UI can show it."""
+    results = []
+    for i, f in enumerate(request.files.getlist("docs")):
+        name = f.filename or "document.pdf"
+        try:
+            results.append({"ok": True, "doc_index": i, "name": name, "pages": inspect_extra_pdf(f.read())})
+        except Exception as e:
+            results.append({"ok": False, "doc_index": i, "name": name, "error": str(e)})
+    return jsonify({"results": results})
+
+
 @app.route("/generate", methods=["POST"])
 def generate():
     agent_name = request.form.get("agent_name", "").strip() or DEFAULT_AGENT_NAME
@@ -532,8 +621,26 @@ def generate():
             return None
         return blobs[sub_index]
 
+    doc_files = request.files.getlist("docs")
+    doc_blobs = {}
+
     ordered_items = []
+    extra_docs = []
     for entry in order:
+        if entry.get("type") == "doc":
+            try:
+                di = entry.get("doc_index")
+                if di is None or di >= len(doc_files):
+                    continue
+                if di not in doc_blobs:
+                    doc_blobs[di] = doc_files[di].read()
+                pdf_bytes = doc_blobs[di]
+                label = (entry.get("label") or "").strip() or os.path.splitext(doc_files[di].filename or "Document")[0]
+                extra_docs.append({"pdf": pdf_bytes, "label": label[:80], "after": len(ordered_items),
+                                   "pages": inspect_extra_pdf(pdf_bytes)})
+            except Exception:
+                traceback.print_exc()
+            continue
         try:
             blob = get_blob(entry.get("file_index"), entry.get("sub_index", 0))
         except Exception:
@@ -569,6 +676,7 @@ def generate():
             include_map=include_map,
             geocode_user_agent=f"jlg-showing-packet-app ({agent_email})",
             prepared_date=datetime.now().strftime("%B %-d, %Y"),
+            extra_docs=extra_docs,
         )
     except Exception as e:
         traceback.print_exc()
